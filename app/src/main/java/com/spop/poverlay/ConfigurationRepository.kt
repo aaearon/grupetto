@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
+import com.spop.poverlay.sensor.interfaces.DeviceType
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) : AutoCloseable {
@@ -15,7 +16,8 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
         BleTxEnabled("bleTxEnabled"),
         DirConEnabled("dirConEnabled"),
         BleFtmsDeviceName("bleFtmsDeviceName"),
-        SerialNumber("serialNumber")
+        SerialNumber("serialNumber"),
+        DetectedDeviceType("detectedDeviceType")
     }
 
     companion object {
@@ -24,6 +26,30 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
         // only stores weak references to objects
         val SharedPreferenceListeners =
             mutableListOf<SharedPreferences.OnSharedPreferenceChangeListener>()
+
+        /** Serialize a [DeviceType] for the [Preferences.DetectedDeviceType] pref. */
+        fun deviceTypeToPref(type: DeviceType): String = type.name
+
+        /** Parse a stored [Preferences.DetectedDeviceType] value, defaulting to [DeviceType.Bike]. */
+        fun deviceTypeFromPref(stored: String?): DeviceType =
+            if (stored == DeviceType.Tread.name) DeviceType.Tread else DeviceType.Bike
+
+        /**
+         * Synchronous read of the persisted detected device type, for callers with no
+         * [ConfigurationRepository] instance (Application/BleServer startup). Mirrors the
+         * raw-prefs access already used by [com.spop.poverlay.overlay.OverlayService].
+         */
+        fun readDetectedDeviceType(context: Context): DeviceType =
+            deviceTypeFromPref(
+                context.getSharedPreferences(SharedPrefsName, Context.MODE_PRIVATE)
+                    .getString(Preferences.DetectedDeviceType.key, null)
+            )
+
+        /** Persist the detected device type from a caller with no repository instance. */
+        fun persistDetectedDeviceType(context: Context, type: DeviceType) {
+            context.getSharedPreferences(SharedPrefsName, Context.MODE_PRIVATE)
+                .edit { putString(Preferences.DetectedDeviceType.key, deviceTypeToPref(type)) }
+        }
     }
 
     private val mutableShowTimerWhenMinimized = MutableStateFlow(true)
@@ -31,12 +57,14 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
     private val mutableDirConEnabled = MutableStateFlow(true)
     private val mutableBleFtmsDeviceName = MutableStateFlow("Grupetto FTMS")
     private val mutableSerialNumber = MutableStateFlow("")
+    private val mutableDetectedDeviceType = MutableStateFlow(DeviceType.Bike)
 
     val showTimerWhenMinimized = mutableShowTimerWhenMinimized
     val bleTxEnabled = mutableBleTxEnabled
     val dirConEnabled = mutableDirConEnabled
     val bleFtmsDeviceName = mutableBleFtmsDeviceName
     val serialNumber = mutableSerialNumber
+    val detectedDeviceType = mutableDetectedDeviceType
 
     private val sharedPreferences: SharedPreferences
 
@@ -90,6 +118,13 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
         }
     }
 
+    fun setDetectedDeviceType(type: DeviceType) {
+        mutableDetectedDeviceType.value = type
+        sharedPreferences.edit {
+            putString(Preferences.DetectedDeviceType.key, deviceTypeToPref(type))
+        }
+    }
+
     fun setSerialNumber(serial: String) {
         val normalized = serial.trim().uppercase()
         mutableSerialNumber.value = normalized
@@ -119,6 +154,11 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
         mutableBleFtmsDeviceName.value =
             sharedPreferences
                 .getString(Preferences.BleFtmsDeviceName.key, "Grupetto FTMS") ?: "Grupetto FTMS"
+
+        mutableDetectedDeviceType.value =
+            deviceTypeFromPref(
+                sharedPreferences.getString(Preferences.DetectedDeviceType.key, null)
+            )
 
         // Ensure a serial number exists and keep it in memory
         val existingSerial = sharedPreferences.getString(Preferences.SerialNumber.key, null)

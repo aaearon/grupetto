@@ -1,6 +1,7 @@
 package com.spop.poverlay.sensor.tread
 
 import android.content.Context
+import com.spop.poverlay.ConfigurationRepository
 import com.spop.poverlay.sensor.interfaces.DeviceType
 import com.spop.poverlay.sensor.interfaces.PelotonBikePlusSensorInterface
 import com.spop.poverlay.sensor.interfaces.PelotonBikeSensorInterfaceV1New
@@ -17,9 +18,11 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
- * A [SensorInterface] that starts on a non-Tread [default] delegate and swaps to a
- * [PelotonTreadSensorInterface] once the shared, cached bind-probe ([isTreadCached])
- * resolves to a Tread.
+ * A [SensorInterface] that starts on a [default] delegate (seeded from the persisted
+ * detected type) and swaps to a [PelotonTreadSensorInterface] once the shared, cached
+ * bind-probe ([isTreadCached]) resolves to a Tread — unless the default is already a
+ * Tread, in which case there is nothing to correct. The resolved type is persisted so
+ * the next launch seeds the correct default synchronously.
  *
  * This exists so the two startup call sites (Application → [com.spop.poverlay.ble.BleServer]
  * and OverlayService view models) can be built SYNCHRONOUSLY with zero delay: the
@@ -42,7 +45,17 @@ class TreadAwareSensorInterface(
 
     init {
         scope.launch {
-            if (isTreadCached(context)) {
+            val isTread = isTreadCached(context)
+            // Persist the resolved type so the next launch seeds the correct default
+            // synchronously (see GrupettoApplication.createSensorInterface). A physical
+            // machine never changes type, so this makes the steady state race-free.
+            ConfigurationRepository.persistDetectedDeviceType(
+                context,
+                if (isTread) DeviceType.Tread else DeviceType.Bike
+            )
+            // Swap only when the default seeded a non-Tread delegate; when the persisted
+            // type already produced a Tread default there is nothing to correct.
+            if (isTread && delegate.value.deviceType != DeviceType.Tread) {
                 Timber.d("Tread detected; swapping sensor interface to PelotonTreadSensorInterface")
                 val previous = delegate.value
                 delegate.value = PelotonTreadSensorInterface(context.applicationContext)
