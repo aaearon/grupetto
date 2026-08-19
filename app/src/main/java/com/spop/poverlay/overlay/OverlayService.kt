@@ -38,12 +38,17 @@ import com.spop.poverlay.R
 
 import com.spop.poverlay.sensor.CadenceWatchdog
 import com.spop.poverlay.sensor.DeadSensorDetector
+import com.spop.poverlay.sensor.SensorSelection
 import com.spop.poverlay.sensor.interfaces.DummySensorInterface
 import com.spop.poverlay.sensor.interfaces.PelotonBikeSensorInterfaceV1New
 import com.spop.poverlay.sensor.interfaces.PelotonBikePlusSensorInterface
+import com.spop.poverlay.sensor.interfaces.PelotonTreadSensorInterface
+import com.spop.poverlay.sensor.selectSensor
+import com.spop.poverlay.sensor.tread.detectIsTread
 import com.spop.poverlay.util.IsBikePlus
 import com.spop.poverlay.util.IsG700CrossTrainer
 import com.spop.poverlay.util.IsRunningOnPeloton
+import kotlinx.coroutines.runBlocking
 import com.spop.poverlay.util.LifecycleEnabledService
 import com.spop.poverlay.util.disableAnimations
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -164,27 +169,36 @@ class OverlayService : LifecycleEnabledService() {
             resources.displayMetrics.heightPixels.toFloat()
         )
 
-        val sensorInterface = if (IsRunningOnPeloton) {
-            if (IsG700CrossTrainer || IsBikePlus) {
-                PelotonBikePlusSensorInterface(this).also {
-                    lifecycle.addObserver(LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_DESTROY) {
-                            it.stop()
-                        }
-                    })
-                }
-            } else {
-                PelotonBikeSensorInterfaceV1New(this).also {
-                    lifecycle.addObserver(LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_DESTROY) {
-                            it.stop()
-                        }
-                    })
-                }
+        // Tread detection is a suspend bind-probe (research doc section 8). It runs
+        // only on a Peloton, so non-Peloton startup incurs no delay. runBlocking
+        // bounds the wait to the detection timeout and keeps this synchronous
+        // construction path intact.
+        val isTread = IsRunningOnPeloton && runBlocking { detectIsTread(this@OverlayService) }
+        val sensorInterface = when (
+            selectSensor(IsRunningOnPeloton, isTread, IsG700CrossTrainer || IsBikePlus)
+        ) {
+            SensorSelection.Tread -> PelotonTreadSensorInterface(this).also {
+                lifecycle.addObserver(LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_DESTROY) {
+                        it.stop()
+                    }
+                })
             }
-
-        } else {
-            EmulatorSensorInterface
+            SensorSelection.BikePlus -> PelotonBikePlusSensorInterface(this).also {
+                lifecycle.addObserver(LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_DESTROY) {
+                        it.stop()
+                    }
+                })
+            }
+            SensorSelection.BikeV1 -> PelotonBikeSensorInterfaceV1New(this).also {
+                lifecycle.addObserver(LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_DESTROY) {
+                        it.stop()
+                    }
+                })
+            }
+            SensorSelection.Dummy -> EmulatorSensorInterface
         }
 
         val timerViewModel = OverlayTimerViewModel(
