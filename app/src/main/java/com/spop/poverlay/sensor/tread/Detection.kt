@@ -6,11 +6,30 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import kotlin.coroutines.resume
 
 private const val DETECT_TIMEOUT_MS = 3000L
+
+@Volatile
+private var cachedIsTread: Boolean? = null
+private val detectionMutex = Mutex()
+
+/**
+ * Process-wide cached [detectIsTread]. The bind-probe is a ~3s off-main operation
+ * and both startup call sites (Application + OverlayService) need the answer, so it
+ * is run at most once and the result shared. The [Mutex] collapses concurrent first
+ * callers into a single probe. Use the application context so nothing is leaked.
+ */
+suspend fun isTreadCached(context: Context): Boolean {
+    cachedIsTread?.let { return it }
+    return detectionMutex.withLock {
+        cachedIsTread ?: detectIsTread(context.applicationContext).also { cachedIsTread = it }
+    }
+}
 
 /**
  * Bind-probe Tread detection (research doc section 8): a Tread is identified by the

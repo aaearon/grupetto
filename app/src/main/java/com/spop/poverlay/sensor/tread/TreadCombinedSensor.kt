@@ -10,6 +10,18 @@ import kotlinx.coroutines.flow.asSharedFlow
 import timber.log.Timber
 
 /**
+ * Raw MCB speed is reported in tenths of a mile per hour; scale to mph.
+ * (Research doc section 6: e.g. raw 32 -> 3.2 mph.)
+ */
+internal fun mphFromRaw(raw: Int): Float = raw / 10f
+
+/**
+ * Raw MCB incline is reported in tenths of a percent grade; scale to percent.
+ * (Research doc section 6: e.g. raw 35 -> 3.5%.)
+ */
+internal fun inclinePercentFromRaw(raw: Int): Float = raw / 10f
+
+/**
  * Registers an `ITreadCallback` with the Peloton affernet tread interface and emits
  * scaled sensor flows from the ~20 Hz `onSensorDataChange` stream.
  *
@@ -57,7 +69,7 @@ class TreadCombinedSensor(
     )
     val incline = mutableIncline.asSharedFlow()
 
-    private var isRegistered = false
+    private var callbackRegistered = false
     private val callbackBinder = createCallback()
 
     companion object {
@@ -103,14 +115,17 @@ class TreadCombinedSensor(
     }
 
     fun start() {
-        if (isRegistered) {
+        if (callbackRegistered) {
             Timber.w("TreadCombinedSensor already started")
             return
         }
         try {
             registerCallback()
+            // The callback is now live in the remote RemoteCallbackList. Gate cleanup
+            // on this flag IMMEDIATELY, before registerProcessDeath can throw, so a
+            // registered callback is always unregistered by stop() (no leak).
+            callbackRegistered = true
             registerProcessDeath()
-            isRegistered = true
             Timber.d("TreadCombinedSensor started successfully")
         } catch (e: Exception) {
             Timber.e(e, "Failed to start TreadCombinedSensor")
@@ -118,13 +133,14 @@ class TreadCombinedSensor(
     }
 
     fun stop() {
-        if (!isRegistered) return
+        if (!callbackRegistered) return
         try {
             unregisterCallback()
         } catch (e: Exception) {
             Timber.e(e, "Failed to stop TreadCombinedSensor")
         } finally {
-            isRegistered = false
+            // Reset unconditionally so unregister runs exactly once (idempotent).
+            callbackRegistered = false
         }
     }
 
@@ -216,8 +232,8 @@ class TreadCombinedSensor(
                         val hasData = data.readInt()
                         if (hasData != 0) {
                             val treadData = TreadData.CREATOR.createFromParcel(data)
-                            val mph = treadData.mcbCurrentSpeed / 10f
-                            val gradePercent = treadData.mcbCurrentIncline / 10f
+                            val mph = mphFromRaw(treadData.mcbCurrentSpeed)
+                            val gradePercent = inclinePercentFromRaw(treadData.mcbCurrentIncline)
                             mutableSpeed.tryEmit(mph)
                             mutableIncline.tryEmit(gradePercent)
                             mutableCadence.tryEmit(0f)

@@ -11,11 +11,10 @@ import com.spop.poverlay.sensor.interfaces.PelotonBikeSensorInterfaceV1New
 import com.spop.poverlay.sensor.interfaces.PelotonTreadSensorInterface
 import com.spop.poverlay.sensor.interfaces.SensorInterface
 import com.spop.poverlay.sensor.selectSensor
-import com.spop.poverlay.sensor.tread.detectIsTread
+import com.spop.poverlay.sensor.tread.TreadAwareSensorInterface
 import com.spop.poverlay.util.IsBikePlus
 import com.spop.poverlay.util.IsG700CrossTrainer
 import com.spop.poverlay.util.IsRunningOnPeloton
-import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 
 class GrupettoApplication : Application() {
@@ -34,16 +33,18 @@ class GrupettoApplication : Application() {
     }
 
     private fun createSensorInterface(): SensorInterface {
-        // Detection is a suspend bind-probe. It only runs on a Peloton (the probe
-        // target doesn't exist elsewhere), so non-Peloton startup incurs no delay.
-        // runBlocking bounds the wait to the detection timeout and keeps bleServer
-        // construction synchronous (its consumers assume it is set after onCreate).
-        val isTread = IsRunningOnPeloton && runBlocking { detectIsTread(this@GrupettoApplication) }
-        return when (selectSensor(IsRunningOnPeloton, isTread, IsG700CrossTrainer || IsBikePlus)) {
+        // NEVER bind-probe on the main thread: it is a ~3s suspend op and blocking
+        // Application.onCreate on it risks an ANR. bleServer must be assigned before
+        // onCreate returns (MainActivity → ConfigurationViewModel reads it at launch),
+        // so build the non-Tread selection synchronously (zero delay) and let
+        // TreadAwareSensorInterface swap in the Tread delegate off-thread once the
+        // shared cached probe resolves. Non-Peloton => no probe, no wrapper, no delay.
+        val default = when (selectSensor(IsRunningOnPeloton, false, IsG700CrossTrainer || IsBikePlus)) {
             SensorSelection.Tread -> PelotonTreadSensorInterface(this)
             SensorSelection.BikePlus -> PelotonBikePlusSensorInterface(this)
             SensorSelection.BikeV1 -> PelotonBikeSensorInterfaceV1New(this)
             SensorSelection.Dummy -> DummySensorInterface()
         }
+        return if (IsRunningOnPeloton) TreadAwareSensorInterface(this, default) else default
     }
 }

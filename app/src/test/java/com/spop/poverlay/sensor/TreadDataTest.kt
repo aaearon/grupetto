@@ -131,15 +131,4 @@ class TreadDataTest {
         assertEquals(2, data.scSystemState)
         assertEquals(true, data.isTreadLocked)
     }
-
-    @Test
-    fun `scales speed and incline by dividing by ten`() {
-        // Value-level scaling assertions from research doc section 6 (confirmed pairs).
-        // Speed: raw 32 -> 3.2 mph, 67 -> 6.7 mph. Incline: 35 -> 3.5%, 80 -> 8.0%.
-        assertEquals(3.2f, 32 / 10f, 0.0001f)
-        assertEquals(6.7f, 67 / 10f, 0.0001f)
-        assertEquals(3.5f, 35 / 10f, 0.0001f)
-        assertEquals(8.0f, 80 / 10f, 0.0001f)
-        assertEquals(1323.0f, 13230 / 10f, 0.0001f)
-    }
 }
