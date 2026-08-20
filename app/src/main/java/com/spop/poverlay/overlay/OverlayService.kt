@@ -74,12 +74,22 @@ class OverlayService : LifecycleEnabledService() {
 
         val OverlayHeightDp = 110.dp
 
+        // Fixed cross-axis extent of the overlay when docked to a side.
+        // Fixed rather than measured so the minimize slide-off distance is known
+        // on the first frame instead of animating from a zero width.
+        val OverlayVerticalWidthDp = 130.dp
+
         //Increases the size of the touch target during the hidden state
         const val HiddenTouchTargetMarginPx = 40
 
         //The percentage up or down a vertical drag must go before the overlay is relocated
         //Defined relative to the height of the screen
         const val VerticalMoveDragThreshold = .5f
+
+        //The percentage left or right a horizontal drag must go before the overlay is
+        //relocated. When docked top or bottom this is measured past the slide clamp.
+        //Defined relative to the width of the screen
+        const val HorizontalMoveDragThreshold = .5f
 
         // Replace with DeadSensorInterface to simulate a dead sensor
         val EmulatorSensorInterface by lazy { DummySensorInterface() }
@@ -272,9 +282,9 @@ class OverlayService : LifecycleEnabledService() {
                     sensorViewModel,
                     timerViewModel,
                     OverlayHeightDp,
+                    OverlayVerticalWidthDp,
                     dialogViewModel.dialogLocation.collectAsState(),
-                    dialogViewModel::processHorizontalDrag,
-                    dialogViewModel::processVerticalDrag,
+                    dialogViewModel::processDrag,
                     dialogViewModel::processHideProgress,
                     dialogViewModel::onOverlayLayout,
                     dialogViewModel::onTimerOverlayLayout
@@ -298,42 +308,55 @@ class OverlayService : LifecycleEnabledService() {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 combine(
                     dialogViewModel.dialogOrigin,
-                    dialogViewModel.dialogGravity,
+                    dialogViewModel.dialogLocation,
                     dialogViewModel.partialOverlayFlags,
-                    dialogViewModel.touchTargetHeight,
+                    dialogViewModel.touchTargetExtent,
                     dialogViewModel.dialogSizeParams,
-                    dialogViewModel.minimizedDialogSizeParams
+                    dialogViewModel.minimizedDialogSizeParams,
+                    // Minimizing changes the window's width when docked to a side, so
+                    // it has to re-run the layout even when nothing else emits
+                    sensorViewModel.isMinimized
                 ) { values ->
                     val origin = values[0] as Offset
-                    val gravity = values[1] as Int
+                    val location = values[1] as OverlayLocation
                     val overlayFlags = values[2] as Int
-                    val touchTargetHeight = values[3] as Float
-                    val (width, height)  = values[4] as Pair<Int,Int>
-                    val (mWidth, mHeight)  = values[5] as Pair<Int,Int>
+                    val touchTargetExtent = values[3] as Float
+                    @Suppress("UNCHECKED_CAST")
+                    val expandedSize = values[4] as Pair<Int, Int>
+                    @Suppress("UNCHECKED_CAST")
+                    val minimizedSize = values[5] as Pair<Int, Int>
+                    val isMinimized = values[6] as Boolean
+
+                    val geometry = overlayWindowGeometry(
+                        location = location,
+                        isMinimized = isMinimized,
+                        expandedSize = expandedSize,
+                        minimizedSize = minimizedSize,
+                        touchExtent = touchTargetExtent.roundToInt()
+                    )
+
                     overlayParams.x = origin.x.roundToInt()
                     overlayParams.y = origin.y.roundToInt()
                     overlayParams.flags = DefaultOverlayFlags or overlayFlags
-                    overlayParams.gravity = gravity
-                    overlayParams.width = width
-                    overlayParams.height = if(sensorViewModel.isMinimized.value){
-                        mHeight
-                    }else{
-                        height
-                    }
+                    overlayParams.gravity = location.gravity
+                    overlayParams.width = geometry.overlayWidth
+                    overlayParams.height = geometry.overlayHeight
+
                     touchTargetParams.x = origin.x.roundToInt()
                     touchTargetParams.y = origin.y.roundToInt()
-                    touchTargetParams.gravity = gravity
-                    touchTargetParams.width = mWidth
-                    touchTargetParams.height = touchTargetHeight.roundToInt()
+                    touchTargetParams.gravity = location.gravity
+                    touchTargetParams.width = geometry.touchWidth
+                    touchTargetParams.height = geometry.touchHeight
+
                     val currentOverlay = overlayView
                     val currentTouchTarget = touchTargetView
                     if (currentOverlay == null || currentTouchTarget == null) {
                         Timber.d("Overlay views cleared before update; skipping layout application")
                         return@combine
                     }
-                    currentTouchTarget.visibility = if (touchTargetHeight > 0f){
+                    currentTouchTarget.visibility = if (geometry.touchTargetVisible) {
                         View.VISIBLE
-                    }else{
+                    } else {
                         View.GONE
                     }
                     disableClipOnParents(currentOverlay)

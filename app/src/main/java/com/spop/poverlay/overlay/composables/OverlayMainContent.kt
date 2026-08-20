@@ -10,6 +10,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.spop.poverlay.R
 import com.spop.poverlay.overlay.MetricType
+import com.spop.poverlay.overlay.OverlayLocation
 import com.spop.poverlay.overlay.PowerChartFullWidth
 import com.spop.poverlay.overlay.PowerChartShrunkWidth
 import com.spop.poverlay.overlay.StatCard
@@ -26,7 +27,7 @@ import com.spop.poverlay.util.LineChart
 @Composable
 fun OverlayMainContent(
         modifier: Modifier,
-        rowAlignment: Alignment.Vertical,
+        location: OverlayLocation,
         isTread: Boolean,
         power: String,
         rpm: String,
@@ -233,45 +234,71 @@ fun OverlayMainContent(
         )
     }
 
-    Row(
-            modifier = modifier,
-            verticalAlignment = rowAlignment,
-            horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
+    // Built once and then emitted into a Row or a Column depending on which edge the
+    // overlay is docked to. The chart is dropped when docked to a side: it is a
+    // wide-and-short shape, and the cards need the screen height it would eat.
+    val cards = buildList<@Composable () -> Unit> {
         if (isTread) {
             // Mirror the Peloton Tread's physical controls: incline on the left,
             // the live graph in the middle, speed on the right. Calories (and HR
             // when a monitor is connected) trail the arrangement so they don't
             // break the incline-left / speed-right mirroring.
             if (showInclineCard) {
-                inclineCard()
+                add(inclineCard)
             }
-            chart()
-            speedCard()
+            if (!location.isVertical) {
+                add(chart)
+            }
+            add(speedCard)
             if (showHeartRateCard) {
-                heartRateCard()
+                add(heartRateCard)
             }
-            caloriesCard()
+            add(caloriesCard)
         } else {
             // Bike layout: unchanged.
             if (showPowerCard) {
-                powerCard()
+                add(powerCard)
             }
             if (showCadenceCard) {
-                cadenceCard()
+                add(cadenceCard)
             }
-            chart()
+            if (!location.isVertical) {
+                add(chart)
+            }
             if (showResistanceCard) {
-                resistanceCard()
+                add(resistanceCard)
             }
-            speedCard()
+            add(speedCard)
             if (showInclineCard) {
-                inclineCard()
+                add(inclineCard)
             }
             if (showHeartRateCard) {
-                heartRateCard()
+                add(heartRateCard)
             }
-            caloriesCard()
+            add(caloriesCard)
+        }
+    }
+
+    if (location.isVertical) {
+        Column(
+                modifier = modifier,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            cards.forEach { it() }
+        }
+    } else {
+        val rowAlignment =
+                when (location) {
+                    OverlayLocation.Top -> Alignment.Top
+                    else -> Alignment.Bottom
+                }
+        Row(
+                modifier = modifier,
+                verticalAlignment = rowAlignment,
+                horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            cards.forEach { it() }
         }
     }
 }
