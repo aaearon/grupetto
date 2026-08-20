@@ -10,11 +10,7 @@ import com.spop.poverlay.sensor.interfaces.PelotonBikePlusSensorInterface
 import com.spop.poverlay.sensor.interfaces.PelotonBikeSensorInterfaceV1New
 import com.spop.poverlay.sensor.interfaces.PelotonTreadSensorInterface
 import com.spop.poverlay.sensor.interfaces.SensorInterface
-import com.spop.poverlay.sensor.selectSensor
-import com.spop.poverlay.util.IsBikePlus
-import com.spop.poverlay.util.IsTread
-import com.spop.poverlay.util.IsG700CrossTrainer
-import com.spop.poverlay.util.IsRunningOnPeloton
+import com.spop.poverlay.sensor.selectSensorForCurrentDevice
 import timber.log.Timber
 
 class GrupettoApplication : Application() {
@@ -33,13 +29,15 @@ class GrupettoApplication : Application() {
     }
 
     private fun createSensorInterface(): SensorInterface {
-        // Detection is synchronous and model-based (util.IsTread): the Tread reports a
-        // distinct model string (PLTN-TTR01), so deviceType — and thus the FTMS
-        // characteristic BleServer builds at start() — is correct and race-free from the
-        // first launch, with zero delay in Application.onCreate (no bind-probe, no ANR
-        // risk). A bind-probe was unreliable: AffernetService returns a non-null
-        // ITreadInterface binder on a bike too, so it misdetected bikes as Treads.
-        return when (selectSensor(IsRunningOnPeloton, IsTread, IsG700CrossTrainer || IsBikePlus)) {
+        // Detection is synchronous and reads Settings.Global["peloton_platform"], the
+        // value affernetservice writes from the mainboard USB VID/PID ("prism" = Tread,
+        // "titan" = Bike+, "caesar" = Row). The tablet model string is NOT usable: Bike+,
+        // Tread and Row all ship the Topaz tablet and report PLTN-TTR01. deviceType — and
+        // thus the FTMS characteristic BleServer builds at start() — is therefore correct
+        // and race-free from the first launch, with zero delay in Application.onCreate.
+        // A bind-probe was also unreliable: AffernetService returns a non-null
+        // ITreadInterface binder on a bike too.
+        return when (selectSensorForCurrentDevice(this)) {
             SensorSelection.Tread -> PelotonTreadSensorInterface(this)
             SensorSelection.BikePlus -> PelotonBikePlusSensorInterface(this)
             SensorSelection.BikeV1 -> PelotonBikeSensorInterfaceV1New(this)

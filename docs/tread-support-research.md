@@ -402,31 +402,80 @@ safety key).
 
 ---
 
-## 8. Detecting a Tread (CONFIRMED by device — model string, NOT bind-probe)
+## 8. Detecting a Tread (CONFIRMED by device — `peloton_platform`, NOT the model string)
 
-**Detection is by model string.** Peloton's decompiled `PlatformConstants` assigns a
-distinct `ro.product.model` per platform, and this was confirmed on the physical
-machines via `adb shell getprop ro.product.model`:
-- Tread (Prism / Topaz): `PLTN-TTR01` (and `PLTN-TTR01-2`) — confirmed on-device.
-- Bike v1 (Qbert): `PLTN-RB1VQ` — confirmed on-device.
-- Bike+ (G700): `g700`.
+### 8.1 The model string identifies the TABLET, not the machine
 
-So the model IS a reliable discriminator. `util/Peloton.kt` now exposes
-`isTreadModel(model)` / `IsTread` (matches `PLTN-TTR01*`), and `selectSensor(...)` is
-fed `IsTread` synchronously at both call sites (`GrupettoApplication`, `OverlayService`).
-Tread is checked **before** the Bike+/V1 branch so the shared `PLTN-T` prefix in the
-old `IsBikePlus` check can't misclassify it.
+`PLTN-TTR01` is the "Topaz" **tablet**, not a Tread. Peloton's own code says so:
 
-**Do NOT use the bind-probe.** An earlier version detected "non-null `ITreadInterface`
-binder ⇒ Tread". This is FALSE and caused a Bike v1 to be misdetected as a Tread
-(Incline+Speed HUD on a bike). Root cause, confirmed in the Bike's affernetservice
-3.0.1 `AffernetService`: `onCreate()` unconditionally instantiates **every** helper
+- FactoryTest APK: `public static boolean isTopaz() { return Build.MODEL.startsWith("PLTN-TTR01"); }`
+  — a *tablet* test.
+- `com/peloton/sensor/client/HardwareType.java`:
+  `isTopaz() { return this == TITAN || this == PRISM || isCaesar(); }`, where
+  **TITAN = Bike+, PRISM = Tread, CAESAR = Row**. All three ship the Topaz tablet and
+  all three report `PLTN-TTR01`.
+- Upstream `selalipop/grupetto` was written for the **Bike+** and had
+  `IsBikePlus = Build.MODEL == "PLTN-TTR01"`; its PR #10 came from a Bike+ owner whose
+  machine reported `PLTN-TTR01-2`.
+
+An earlier revision of this document claimed `PLTN-TTR01` identified a Tread and that
+Bike+ was `g700`. **Both were wrong** — the `g700` value belongs to the 2025
+Amber/Redstone tablets, not the 2020 Bike+ fleet. Acting on that claim shipped a
+regression that routed every Bike+ onto the Tread path (Tread HUD, FTMS `0x2ACD`
+instead of `0x2AD2`, no power/cadence/resistance, and an `ITreadInterface` bind).
+
+### 8.2 The discriminator: `Settings.Global["peloton_platform"]`
+
+`affernetservice` detects the attached mainboard by USB VID/PID and writes the platform
+into `Settings.Global` (`PlatformGlobal.java:105-108`). There is also
+`peloton_platform_variant` (e.g. `prism-l`, `prism-b`).
+
+| `peloton_platform` | `HardwareType` | Machine |
+|---|---|---|
+| `titan` | TITAN | Bike+ |
+| `prism` | PRISM | Tread |
+| `caesar` | CAESAR | Row |
+| `aurora` | AURORA | Tread+ |
+| `v1` | — | Bike Gen 1 |
+
+Hardware-verified read-only over adb:
+
+| Machine | `ro.product.model` | `peloton_platform` | `peloton_platform_variant` |
+|---|---|---|---|
+| Tread | `PLTN-TTR01` | `prism` | `prism` |
+| Bike Gen 1 | `PLTN-RB1VQ` | `v1` | `v1` |
+
+### 8.3 What grupetto does
+
+`util/Peloton.kt` exposes `readPelotonPlatform(context)` (reads the global; null on any
+failure) and `isTreadPlatform(platform)`, which is true **only** for `prism` or a
+`prism-` prefixed variant. `sensor/SensorSelection.kt` adds the pure
+`selectSensorForDevice(isRunningOnPeloton, model, platform)` and the Context-taking
+`selectSensorForCurrentDevice(context)` used by `GrupettoApplication` and
+`OverlayService`; `selectSensor(...)` itself stays boolean-only and unit-testable.
+Tread is still checked before the Bike+/V1 branch, because the Bike+ model test
+(`Build.MODEL.contains("PLTN-T")`) also matches a Tread's tablet.
+
+`isTreadModel(model)` remains as a pure helper for logging/diagnostics only. It is a
+Topaz-tablet test and must never again gate the tread path on its own.
+
+**Fallback (deliberate): missing, empty or unreadable `peloton_platform` ⇒ NOT a
+Tread.** We fall back to the bike path and do not consult the model string. Putting a
+Tread on the bike HUD is cosmetic; binding a Bike+ — grupetto's most common device — to
+`ITreadInterface` is not.
+
+### 8.4 Do NOT use the bind-probe
+
+An earlier version detected "non-null `ITreadInterface` binder ⇒ Tread". This is FALSE
+and caused a Bike v1 to be misdetected as a Tread (Incline+Speed HUD on a bike). Root
+cause, confirmed in the Bike's affernetservice 3.0.1 `AffernetService`: `onCreate()`
+unconditionally instantiates **every** helper
 (`treadServiceHelper = new TreadServiceHelper(...)`) regardless of platform, so
 `onBind(ITreadInterface)` returns `treadServiceHelper.getBinder()` — a non-null binder —
 even on a bike. The bind-probe therefore always returned non-null.
 
 `ITreadInterface` binding is still used, but only by `PelotonTreadSensorInterface` to
-READ data once a Tread has already been selected by model — never as the detector.
+READ data once a Tread has already been selected by platform — never as the detector.
 
 ---
 
@@ -538,8 +587,9 @@ Fix these while implementing Tread (they're in the same subsystem), each with a 
   value assertions.
 - **Scaling tests:** assert `35→3.5%`, `80→8.0%`, `32→3.2mph`, `67→6.7mph`,
   `13230→1323.0mi` (the confirmed pairs).
-- **Detection test:** assert `PLTN-TTR01` is not classified as Bike+ and that a Tread
-  is detected via the platform/bind path.
+- **Detection test:** assert `PLTN-TTR01` with `peloton_platform=titan` selects the
+  **Bike+** interface, `prism` selects the Tread, and a missing/empty platform falls
+  back to the bike path (`DeviceSensorSelectionTest`, `PelotonPlatformDetectionTest`).
 - **Control experiment (already done, for confidence):** the same decompiled APK's
   `IV1Interface`/`BikeData` were re-derived and matched grupetto's shipped, known-
   working bike code (descriptor, txns 1/2, callback codes, 57/57 field order, and

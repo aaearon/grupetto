@@ -21,16 +21,17 @@ class PelotonModelDetectionTest {
     }
 
     @Test
-    fun `detects tread model variants`() {
-        // PlatformConstants: TABLET_TOPAZ / TABLET_TOPAZ2 (the Prism Tread).
+    fun `detects the shared topaz tablet`() {
+        // PLTN-TTR01 / PLTN-TTR01-2 is the Topaz TABLET, shipped on Bike+ (TITAN),
+        // Tread (PRISM) and Row (CAESAR) alike, so this is not a machine test.
         assertTrue(isTreadModel("PLTN-TTR01"))
         assertTrue(isTreadModel("PLTN-TTR01-2"))
         assertTrue(isTreadModel("pltn-ttr01"))
     }
 
     @Test
-    fun `does not classify bikes as tread`() {
-        // TABLET_QBERT (Bike v1) and TABLET_G700 (Bike+) are not Treads.
+    fun `does not match non topaz tablets`() {
+        // Bike Gen 1 (PLTN-RB1VQ) and the G700 cross trainer run different tablets.
         assertFalse(isTreadModel("PLTN-RB1VQ"))
         assertFalse(isTreadModel("g700"))
         assertFalse(isTreadModel("PLTN-ATR01"))
