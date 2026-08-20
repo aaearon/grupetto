@@ -24,7 +24,23 @@ private const val SERVICE_INTENT = "com.onepeloton.affernetservice.AffernetServi
  */
 data class TreadBinding(val binder: IBinder, val connection: ServiceConnection)
 
-suspend fun getTreadBinder(context: Context) = suspendCancellableCoroutine<TreadBinding> { ctx ->
+/**
+ * Build the affernet service bind [Intent]. Extracted so unit tests can inject a stub:
+ * constructing a real [Intent] against the stubbed android.jar throws, and mocking that
+ * away globally (testOptions.unitTests.returnDefaultValues) would silently disable the
+ * "Method ... not mocked" guardrail for every test in the module.
+ */
+internal val defaultTreadServiceIntentFactory: () -> Intent = {
+    Intent(SERVICE_INTENT).apply {
+        setAction(SERVICE_ACTION)
+        setPackage(SERVICE_PACKAGE)
+    }
+}
+
+suspend fun getTreadBinder(
+    context: Context,
+    intentFactory: () -> Intent = defaultTreadServiceIntentFactory,
+) = suspendCancellableCoroutine<TreadBinding> { ctx ->
     // The service callbacks below can fire more than once (e.g. onServiceConnected
     // succeeds and onBindingDied fires later), and resuming a continuation twice throws
     // IllegalStateException. Guard so the first of {connected, null binding, died} wins
@@ -64,10 +80,7 @@ suspend fun getTreadBinder(context: Context) = suspendCancellableCoroutine<Tread
     }
 
     val bound = context.bindService(
-        Intent(SERVICE_INTENT).apply {
-            setAction(SERVICE_ACTION)
-            setPackage(SERVICE_PACKAGE)
-        }, connection, Context.BIND_AUTO_CREATE
+        intentFactory(), connection, Context.BIND_AUTO_CREATE
     )
     // bindService returns false when the bind could not even be initiated; no callback
     // will ever arrive, so resume with an exception (and unbind to avoid leaking the

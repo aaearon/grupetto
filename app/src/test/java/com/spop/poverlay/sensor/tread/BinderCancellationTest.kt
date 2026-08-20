@@ -1,6 +1,7 @@
 package com.spop.poverlay.sensor.tread
 
 import android.content.Context
+import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import io.mockk.every
@@ -25,6 +26,12 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class BinderCancellationTest {
 
+    // A real Intent cannot be constructed against the stubbed android.jar, and relaxing
+    // that module-wide would disable the "Method ... not mocked" guardrail everywhere.
+    // getTreadBinder takes an injectable factory instead; the Intent is never inspected
+    // because bindService itself is mocked.
+    private fun stubIntentFactory(): () -> Intent = { mockk(relaxed = true) }
+
     @Test(timeout = 15_000)
     fun `cancelling an in-flight bind unbinds exactly once`() = runBlocking {
         val bindCalled = CountDownLatch(1)
@@ -39,7 +46,7 @@ class BinderCancellationTest {
             Unit
         }
 
-        val job = launch(Dispatchers.Default) { getTreadBinder(context) }
+        val job = launch(Dispatchers.Default) { getTreadBinder(context, stubIntentFactory()) }
         assertTrue("bindService was never called", bindCalled.await(5, TimeUnit.SECONDS))
         job.cancelAndJoin()
 
@@ -65,7 +72,7 @@ class BinderCancellationTest {
             Unit
         }
 
-        val job = launch(Dispatchers.Default) { getTreadBinder(context) }
+        val job = launch(Dispatchers.Default) { getTreadBinder(context, stubIntentFactory()) }
         job.join()
         job.cancelAndJoin()
 
