@@ -43,11 +43,7 @@ import com.spop.poverlay.sensor.interfaces.DummySensorInterface
 import com.spop.poverlay.sensor.interfaces.PelotonBikeSensorInterfaceV1New
 import com.spop.poverlay.sensor.interfaces.PelotonBikePlusSensorInterface
 import com.spop.poverlay.sensor.interfaces.PelotonTreadSensorInterface
-import com.spop.poverlay.sensor.selectSensor
-import com.spop.poverlay.util.IsBikePlus
-import com.spop.poverlay.util.IsTread
-import com.spop.poverlay.util.IsG700CrossTrainer
-import com.spop.poverlay.util.IsRunningOnPeloton
+import com.spop.poverlay.sensor.selectSensorForCurrentDevice
 import com.spop.poverlay.util.LifecycleEnabledService
 import com.spop.poverlay.util.disableAnimations
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -168,13 +164,14 @@ class OverlayService : LifecycleEnabledService() {
             resources.displayMetrics.heightPixels.toFloat()
         )
 
-        // Detection is synchronous and model-based (util.IsTread): the Tread reports a
-        // distinct model string (PLTN-TTR01), so the correct interface (and metric set)
+        // Detection is synchronous and reads Settings.Global["peloton_platform"]
+        // ("prism" = Tread, "titan" = Bike+, "caesar" = Row); the shared Topaz tablet
+        // model (PLTN-TTR01) cannot discriminate. The correct interface (and metric set)
         // is chosen from the first frame with zero delay and no ANR risk. A bind-probe
         // was unreliable — AffernetService returns a non-null ITreadInterface binder on
         // a bike too, so it misdetected bikes as Treads (Incline+Speed HUD on a bike).
         val sensorInterface = when (
-            selectSensor(IsRunningOnPeloton, IsTread, IsG700CrossTrainer || IsBikePlus)
+            selectSensorForCurrentDevice(this)
         ) {
             SensorSelection.Tread -> PelotonTreadSensorInterface(this)
             SensorSelection.BikePlus -> PelotonBikePlusSensorInterface(this)
