@@ -210,12 +210,11 @@ fun Overlay(
         Box(modifier = Modifier
             .then(
                 if (location.isVertical) {
-                    // A full-height window sizes to content unless told otherwise, which
-                    // would anchor the bar to the top of the screen instead of centring it
+                    // The window itself wraps this content and Gravity.CENTER_VERTICAL
+                    // centres it, so nothing here may stretch to the screen height.
                     Modifier
                         .requiredWidth(verticalWidth)
                         .wrapContentHeight(unbounded = true)
-                        .fillMaxHeight()
                 } else {
                     Modifier
                         .requiredHeight(height)
@@ -257,7 +256,6 @@ fun Overlay(
                 modifier = if (location.isVertical) {
                     Modifier
                         .wrapContentHeight(unbounded = true)
-                        .fillMaxHeight()
                         .padding(vertical = 9.dp)
                 } else {
                     Modifier
@@ -313,9 +311,7 @@ fun Overlay(
     // width regardless of the unbounded parent.
     val maxSnackbarWidth = LocalConfiguration.current.screenWidthDp.dp
     Box(
-        modifier = Modifier
-            .wrapContentSize(unbounded = true)
-            .then(if (location.isVertical) Modifier.fillMaxHeight() else Modifier)
+        modifier = Modifier.wrapContentSize(unbounded = true)
     ) {
         errorMessage?.let {
             Snackbar(
@@ -338,7 +334,6 @@ fun Overlay(
             Row(
                 modifier = Modifier
                     .wrapContentSize()
-                    .fillMaxHeight()
                     .offset { visibilityOffset },
                 verticalAlignment = Alignment.CenterVertically
             ) {
