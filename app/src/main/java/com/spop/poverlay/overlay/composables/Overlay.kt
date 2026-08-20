@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Button
 import androidx.compose.material.Snackbar
@@ -51,9 +52,10 @@ fun Overlay(
     sensorViewModel: OverlaySensorViewModel,
     timerViewModel: OverlayTimerViewModel,
     height: Dp,
+    verticalWidth: Dp,
     locationState: State<OverlayLocation>,
-    horizontalDragCallback: (Float) -> Float,
-    verticalDragCallback: (Float) -> Float,
+    dragCallback: (Float, Float) -> OverlayDragResult,
+    dragStartCallback: () -> Pair<Float, Float>,
     offsetCallback: (Float, Float) -> Unit,
     onLayout: (IntSize) -> Unit,
     onTimerLayout: (IntSize) -> Unit
@@ -120,8 +122,10 @@ fun Overlay(
     val size = remember { mutableStateOf(IntSize.Zero) }
 
 
-    val mainContentHeight = with(LocalDensity.current) {
-        height.roundToPx()
+    // How far the main content travels to slide off screen: its height when docked
+    // top or bottom, its width when docked to a side.
+    val mainContentExtent = with(LocalDensity.current) {
+        if (location.isVertical) verticalWidth.roundToPx() else height.roundToPx()
     }
 
     val timerAlpha by animateFloatAsState(
@@ -131,11 +135,9 @@ fun Overlay(
 
     val visibilityOffset by animateIntOffsetAsState(
         if (minimized) {
-            when (location) {
-                // When the main content is hidden, move it off screen completely
-                OverlayLocation.Top -> IntOffset(0, -mainContentHeight)
-                OverlayLocation.Bottom -> IntOffset(0, mainContentHeight)
-            }
+            // When the main content is hidden, move it off screen completely
+            val hidden = mainContentExtent * location.hideSign
+            if (location.isVertical) IntOffset(hidden, 0) else IntOffset(0, hidden)
         } else {
             IntOffset.Zero
         },
@@ -145,17 +147,29 @@ fun Overlay(
         }
     )
 
-    offsetCallback(visibilityOffset.y.toFloat(), size.value.height.toFloat())
+    if (location.isVertical) {
+        offsetCallback(visibilityOffset.x.toFloat(), size.value.width.toFloat())
+    } else {
+        offsetCallback(visibilityOffset.y.toFloat(), size.value.height.toFloat())
+    }
 
     var horizontalDragOffset by remember { mutableStateOf(0f) }
     var verticalDragOffset by remember { mutableStateOf(0f) }
 
+    // Only the corners facing the middle of the screen are rounded. The side cases use
+    // absolute corners because docking follows a finger, not the layout direction.
     val backgroundShape = when (location) {
         OverlayLocation.Top -> RoundedCornerShape(
             bottomStart = OverlayCornerRadius, bottomEnd = OverlayCornerRadius
         )
         OverlayLocation.Bottom -> RoundedCornerShape(
             topStart = OverlayCornerRadius, topEnd = OverlayCornerRadius
+        )
+        OverlayLocation.Left -> AbsoluteRoundedCornerShape(
+            topRight = OverlayCornerRadius, bottomRight = OverlayCornerRadius
+        )
+        OverlayLocation.Right -> AbsoluteRoundedCornerShape(
+            topLeft = OverlayCornerRadius, bottomLeft = OverlayCornerRadius
         )
     }
     val timer = @Composable {
@@ -194,8 +208,19 @@ fun Overlay(
     }
     val mainContent = @Composable {
         Box(modifier = Modifier
-            .requiredHeight(height)
-            .wrapContentWidth(unbounded = true)
+            .then(
+                if (location.isVertical) {
+                    // The window itself wraps this content and Gravity.CENTER_VERTICAL
+                    // centres it, so nothing here may stretch to the screen height.
+                    Modifier
+                        .requiredWidth(verticalWidth)
+                        .wrapContentHeight(unbounded = true)
+                } else {
+                    Modifier
+                        .requiredHeight(height)
+                        .wrapContentWidth(unbounded = true)
+                }
+            )
             .onSizeChanged {
                 if (it.width != size.value.width || it.height != size.value.height) {
                     size.value = it
@@ -207,29 +232,38 @@ fun Overlay(
                 shape = backgroundShape,
             )
             .pointerInput(Unit) {
-                detectDragGestures(onDrag = { _, offset ->
+                detectDragGestures(onDragStart = {
+                    // A new gesture continues from where the overlay currently sits
+                    // instead of snapping back to the center on the first movement
+                    val (seedX, seedY) = dragStartCallback()
+                    horizontalDragOffset = seedX
+                    verticalDragOffset = seedY
+                }, onDrag = { _, offset ->
                     horizontalDragOffset += offset.x
-                    horizontalDragOffset = horizontalDragCallback(horizontalDragOffset)
-
                     verticalDragOffset += offset.y
-                    verticalDragOffset = verticalDragCallback(verticalDragOffset)
+                    // The accumulators are carried back raw so a sideways drag can keep
+                    // growing past the slide clamp and reach the dock-to-side threshold
+                    val result = dragCallback(horizontalDragOffset, verticalDragOffset)
+                    horizontalDragOffset = result.accumulatedX
+                    verticalDragOffset = result.accumulatedY
                 }, onDragEnd = {
                     verticalDragOffset = 0f
+                    horizontalDragOffset = 0f
                 })
             }) {
 
-
-            val rowAlignment = when (location) {
-                OverlayLocation.Top -> Alignment.Top
-                OverlayLocation.Bottom -> Alignment.Bottom
-            }
-
             OverlayMainContent(
-                modifier = Modifier
-                    .wrapContentWidth(unbounded = true)
-                    .padding(horizontal = 9.dp)
-                    .padding(bottom = 5.dp),
-                rowAlignment = rowAlignment,
+                modifier = if (location.isVertical) {
+                    Modifier
+                        .wrapContentHeight(unbounded = true)
+                        .padding(vertical = 9.dp)
+                } else {
+                    Modifier
+                        .wrapContentWidth(unbounded = true)
+                        .padding(horizontal = 9.dp)
+                        .padding(bottom = 5.dp)
+                },
+                location = location,
                 isTread = isTread,
                 power = power,
                 rpm = rpm,
@@ -277,8 +311,7 @@ fun Overlay(
     // width regardless of the unbounded parent.
     val maxSnackbarWidth = LocalConfiguration.current.screenWidthDp.dp
     Box(
-        modifier = Modifier
-            .wrapContentSize(unbounded = true)
+        modifier = Modifier.wrapContentSize(unbounded = true)
     ) {
         errorMessage?.let {
             Snackbar(
@@ -297,23 +330,41 @@ fun Overlay(
             }
             return@Box
         }
-        Column(
-            modifier = Modifier
-                .wrapContentSize()
-                .offset { visibilityOffset },
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-
-            when (location) {
-                OverlayLocation.Top -> {
-                    mainContent()
-
-                    timer()
+        if (location.isVertical) {
+            Row(
+                modifier = Modifier
+                    .wrapContentSize()
+                    .offset { visibilityOffset },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // The timer always sits on the screen-inward side of the main content
+                when (location) {
+                    OverlayLocation.Right -> {
+                        timer()
+                        mainContent()
+                    }
+                    else -> {
+                        mainContent()
+                        timer()
+                    }
                 }
-                OverlayLocation.Bottom -> {
-                    timer()
-                    mainContent()
-
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .wrapContentSize()
+                    .offset { visibilityOffset },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                when (location) {
+                    OverlayLocation.Top -> {
+                        mainContent()
+                        timer()
+                    }
+                    else -> {
+                        timer()
+                        mainContent()
+                    }
                 }
             }
         }
