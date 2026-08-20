@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.spop.poverlay.MainActivity
 import com.spop.poverlay.sensor.DeadSensorDetector
+import com.spop.poverlay.sensor.interfaces.DeviceType
 import com.spop.poverlay.sensor.heartrate.HeartRateManager
 import com.spop.poverlay.sensor.interfaces.SensorInterface
 import com.spop.poverlay.util.smoothSensorValue
@@ -29,7 +30,7 @@ import kotlin.time.Duration.Companion.minutes
 private const val MphToKph = 1.60934
 
 enum class MetricType {
-    POWER, CADENCE, RESISTANCE, SPEED, HEART_RATE
+    POWER, CADENCE, RESISTANCE, SPEED, HEART_RATE, INCLINE
 }
 
 /**
@@ -278,6 +279,13 @@ class OverlaySensorViewModel(
         }
     }
 
+    val inclineValue = sensorInterface.incline
+        .sample(UiUpdatePeriod)
+        .map { "%.1f".format(it) }
+
+    // A treadmill reports incline; a bike does not, so only show the card for a Tread.
+    val showInclineCard = sensorInterface.deviceType == DeviceType.Tread
+
     fun onClickedSpeedUnit() {
         viewModelScope.launch {
             useMph.emit(!useMph.value)
@@ -328,6 +336,7 @@ class OverlaySensorViewModel(
     val resistanceGraph = mutableStateListOf<Float>()
     val speedGraph = mutableStateListOf<Float>()
     val heartRateGraph = mutableStateListOf<Float>()
+    val inclineGraph = mutableStateListOf<Float>()
 
     fun getGraphForMetric(metric: MetricType): List<Float> {
         return when (metric) {
@@ -336,6 +345,7 @@ class OverlaySensorViewModel(
             MetricType.RESISTANCE -> resistanceGraph
             MetricType.SPEED -> speedGraph
             MetricType.HEART_RATE -> heartRateGraph
+            MetricType.INCLINE -> inclineGraph
         }
     }
 
@@ -416,6 +426,22 @@ class OverlaySensorViewModel(
                             heartRateGraph.add(value)
                             if (heartRateGraph.size > GraphMaxDataPoints) {
                                 heartRateGraph.removeFirst()
+                            }
+                        }
+                    }
+                })
+        }
+
+        // Incline graph
+        viewModelScope.launch(Dispatchers.IO) {
+            sensorInterface.incline.smoothSensorValue()
+                .sample(UiUpdatePeriod)
+                .collect(object : FlowCollector<Float> {
+                    override suspend fun emit(value: Float) {
+                        withContext(Dispatchers.Main) {
+                            inclineGraph.add(value)
+                            if (inclineGraph.size > GraphMaxDataPoints) {
+                                inclineGraph.removeFirst()
                             }
                         }
                     }

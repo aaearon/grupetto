@@ -17,6 +17,7 @@ import com.spop.poverlay.overlay.StatCardWidth
 import com.spop.poverlay.ui.theme.MetricCadenceColor
 import com.spop.poverlay.ui.theme.MetricCalorieColor
 import com.spop.poverlay.ui.theme.MetricHeartRateColor
+import com.spop.poverlay.ui.theme.MetricInclineColor
 import com.spop.poverlay.ui.theme.MetricPowerColor
 import com.spop.poverlay.ui.theme.MetricResistanceColor
 import com.spop.poverlay.ui.theme.MetricSpeedColor
@@ -52,6 +53,8 @@ fun OverlayMainContent(
         maxHeartRate: String,
         avgHeartRate: String,
         showHeartRateCard: Boolean,
+        incline: String,
+        showInclineCard: Boolean,
         onMetricSelected: (MetricType) -> Unit,
         onSpeedUnitClicked: () -> Unit,
         onChartClicked: () -> Unit
@@ -65,6 +68,7 @@ fun OverlayMainContent(
                 MetricType.RESISTANCE -> MetricResistanceColor
                 MetricType.SPEED -> MetricSpeedColor
                 MetricType.HEART_RATE -> MetricHeartRateColor
+                MetricType.INCLINE -> MetricInclineColor
             }
 
     // Define minimum thresholds to prevent chart from getting too compressed at low values
@@ -76,6 +80,7 @@ fun OverlayMainContent(
                 MetricType.RESISTANCE -> maxOf(100f, maxResistanceValue)
                 MetricType.SPEED -> maxOf(40f, maxSpeedValue)
                 MetricType.HEART_RATE -> 220f
+                MetricType.INCLINE -> 15f
             }
 
     Row(
@@ -179,6 +184,21 @@ fun OverlayMainContent(
                 onClick = { onMetricSelected(MetricType.SPEED) },
                 onUnitClick = onSpeedUnitClicked
         )
+
+        if (showInclineCard) {
+                // Placeholder icon: reuses ic_speed until a dedicated incline/slope
+                // drawable is added (follow-up).
+                StatCard(
+                        name = "Incline",
+                        value = incline,
+                        unit = "%",
+                        modifier = statCardModifier,
+                        iconDrawable = R.drawable.ic_speed,
+                        maxValue = "",
+                        color = MetricInclineColor,
+                        onClick = { onMetricSelected(MetricType.INCLINE) }
+                )
+        }
 
         if (showHeartRateCard) {
                 StatCard(

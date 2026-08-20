@@ -65,6 +65,7 @@ fun Overlay(
     val resistance by sensorViewModel.resistanceValue.collectAsState(initial = SensorValuePlaceholderText)
     val speed by sensorViewModel.speedValue.collectAsState(initial = SensorValuePlaceholderText)
     val speedLabel by sensorViewModel.speedLabel.collectAsState(initial = "")
+    val incline by sensorViewModel.inclineValue.collectAsState(initial = SensorValuePlaceholderText)
     val calories by sensorViewModel.caloriesValue.collectAsStateWithLifecycle(initialValue = SensorValuePlaceholderText)
     val heartRate by HeartRateManager.heartRate.collectAsStateWithLifecycle(initialValue = null)
     val connectedHeartRateDevice by HeartRateManager.connectedDevice.collectAsStateWithLifecycle(initialValue = null)
@@ -240,6 +241,8 @@ fun Overlay(
                 maxHeartRate = "%.0f".format(maxHeartRate),
                 avgHeartRate = "%.0f".format(avgHeartRate),
                 showHeartRateCard = showHeartRateCard,
+                incline = incline,
+                showInclineCard = sensorViewModel.showInclineCard,
                 onMetricSelected = { sensorViewModel.onMetricSelected(it) },
                 onSpeedUnitClicked = { sensorViewModel.onClickedSpeedUnit() },
                 onChartClicked = { sensorViewModel.onOverlayPressed() }
