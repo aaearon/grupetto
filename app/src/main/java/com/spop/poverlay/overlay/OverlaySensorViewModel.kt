@@ -16,11 +16,14 @@ import com.spop.poverlay.util.smoothSensorValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration
@@ -90,20 +93,40 @@ class OverlaySensorViewModel(
     }
 
 
+    // Reactive device type. With TreadAwareSensorInterface the active delegate (and thus
+    // deviceType) can change after the async bind-probe swaps Bike->Tread; deriving the
+    // metric set from this flow lets the overlay update its cards without an app restart.
+    // Fixed interfaces emit a single value, so bike behavior is unchanged.
+    private val deviceType: StateFlow<DeviceType> =
+        sensorInterface.deviceTypeFlow.stateIn(
+            viewModelScope, SharingStarted.Eagerly, sensorInterface.deviceType
+        )
+
     // Device-appropriate metric set (single source of truth). See deviceMetrics().
-    private val visibleMetrics = deviceMetrics(sensorInterface.deviceType)
+    private val visibleMetrics: StateFlow<List<MetricType>> =
+        deviceType.map(::deviceMetrics).stateIn(
+            viewModelScope, SharingStarted.Eagerly, deviceMetrics(sensorInterface.deviceType)
+        )
 
     /** Default chart metric for this device (Power on a bike, Speed on a tread). */
-    val defaultMetric = defaultMetricFor(sensorInterface.deviceType)
+    val defaultMetric: StateFlow<MetricType> =
+        deviceType.map(::defaultMetricFor).stateIn(
+            viewModelScope, SharingStarted.Eagerly, defaultMetricFor(sensorInterface.deviceType)
+        )
 
-    /** Which primary metric cards to show, derived from [visibleMetrics]. */
-    val showPowerCard = MetricType.POWER in visibleMetrics
-    val showCadenceCard = MetricType.CADENCE in visibleMetrics
-    val showResistanceCard = MetricType.RESISTANCE in visibleMetrics
-    val showSpeedCard = MetricType.SPEED in visibleMetrics
+    /** Which primary metric cards to show, derived reactively from [visibleMetrics]. */
+    val showPowerCard: StateFlow<Boolean> = visibleMetricFlow(MetricType.POWER)
+    val showCadenceCard: StateFlow<Boolean> = visibleMetricFlow(MetricType.CADENCE)
+    val showResistanceCard: StateFlow<Boolean> = visibleMetricFlow(MetricType.RESISTANCE)
+    val showSpeedCard: StateFlow<Boolean> = visibleMetricFlow(MetricType.SPEED)
 
     // A treadmill reports incline; a bike does not, so only show the card for a Tread.
-    val showInclineCard = MetricType.INCLINE in visibleMetrics
+    val showInclineCard: StateFlow<Boolean> = visibleMetricFlow(MetricType.INCLINE)
+
+    private fun visibleMetricFlow(metric: MetricType): StateFlow<Boolean> =
+        visibleMetrics.map { metric in it }.stateIn(
+            viewModelScope, SharingStarted.Eagerly, metric in visibleMetrics.value
+        )
 
     //TODO: Move this logic to dialog view model
     private val mutableIsMinimized = MutableStateFlow(false)
@@ -112,7 +135,7 @@ class OverlaySensorViewModel(
     private val mutableErrorMessage = MutableStateFlow<String?>(null)
     val errorMessage = mutableErrorMessage.asStateFlow()
 
-    private val mutableSelectedMetric = MutableStateFlow(defaultMetric)
+    private val mutableSelectedMetric = MutableStateFlow(defaultMetric.value)
     val selectedMetric = mutableSelectedMetric.asStateFlow()
 
     fun onDismissErrorPressed() {
@@ -506,6 +529,19 @@ class OverlaySensorViewModel(
         setupGraphData()
         setupCaloriesAccumulation()
         setupMaxTracking()
+
+        // When the active device swaps (Bike->Tread), reset the chart selection if the
+        // previously selected metric no longer applies to the new device. Heart rate is
+        // gated separately (on a connected monitor), so leave that selection alone.
+        viewModelScope.launch {
+            deviceType.collect { type ->
+                val selected = mutableSelectedMetric.value
+                if (selected != MetricType.HEART_RATE && selected !in deviceMetrics(type)) {
+                    mutableSelectedMetric.value = defaultMetricFor(type)
+                }
+            }
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             deadSensorDetector.deadSensorDetected.collect(object : FlowCollector<Unit> {
                 override suspend fun emit(value: Unit) {

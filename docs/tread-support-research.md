@@ -1,7 +1,9 @@
 # Peloton Tread support — reverse-engineering research & implementation brief
 
 **Status:** Research complete. Production implementation and tests exist on branch
-`feature/tread-support` (PR #2); on-device verification still pending. This document
+`feature/tread-support` (PR #2) and have been verified end-to-end on a real Peloton
+Tread: device detection, the safe binder, live speed + incline on the HUD, and the
+FTMS Treadmill Data characteristic (0x2ACD) confirmed via nRF Connect. This document
 was the input for implementing Tread support in grupetto (`com.spop.poverlay`).
 
 **Audience:** an LLM (or engineer) implementing the feature. Read this whole file

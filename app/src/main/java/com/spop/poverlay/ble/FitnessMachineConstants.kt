@@ -65,10 +65,14 @@ object FitnessMachineConstants {
      */
     fun buildTreadmillDataPacket(speedKmh: Float, inclinePct: Float): ByteArray {
         val flags = TreadmillDataFlags.InclinationAndRampAnglePresent
-        val speedValue = (speedKmh * 100f).roundToInt()
-        val inclineValue = (inclinePct * 10f).roundToInt()
+        // Clamp to the FTMS field ranges before serializing. Out-of-range or unexpected
+        // negative inputs would otherwise wrap when masked into 16 bits and produce
+        // invalid notifications. Scaling/rounding is unchanged; only the results are bounded.
+        // Speed is uint16 (can't be negative); inclination and ramp are sint16.
+        val speedValue = (speedKmh * 100f).roundToInt().coerceIn(0, 65535)
+        val inclineValue = (inclinePct * 10f).roundToInt().coerceIn(-32768, 32767)
         val rampDeg = Math.toDegrees(atan((inclinePct / 100f).toDouble()))
-        val rampValue = (rampDeg * 10.0).roundToInt()
+        val rampValue = (rampDeg * 10.0).roundToInt().coerceIn(-32768, 32767)
         return byteArrayOf(
             (flags and 0xFF).toByte(),
             (flags shr 8 and 0xFF).toByte(),

@@ -22,4 +22,13 @@ interface SensorInterface {
     /** The kind of device backing this interface. Defaults to [DeviceType.Bike]. */
     val deviceType: DeviceType
         get() = DeviceType.Bike
+
+    /**
+     * Reactive view of [deviceType]. Fixed interfaces emit their single type; a wrapper
+     * whose active delegate can change (e.g. [com.spop.poverlay.sensor.tread.TreadAwareSensorInterface])
+     * overrides this to emit each new type as it swaps, so the overlay can re-derive its
+     * visible metric set without an app restart.
+     */
+    val deviceTypeFlow: Flow<DeviceType>
+        get() = flowOf(deviceType)
 }

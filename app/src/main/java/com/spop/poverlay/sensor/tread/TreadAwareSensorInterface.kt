@@ -14,6 +14,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -66,6 +67,10 @@ class TreadAwareSensorInterface(
 
     override val deviceType: DeviceType
         get() = delegate.value.deviceType
+
+    /** Emits the active delegate's type, updating live when the delegate is swapped. */
+    override val deviceTypeFlow: Flow<DeviceType>
+        get() = delegate.map { it.deviceType }
 
     override val power: Flow<Float>
         get() = delegate.flatMapLatest { it.power }

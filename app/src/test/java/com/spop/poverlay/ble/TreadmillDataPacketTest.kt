@@ -54,4 +54,26 @@ class TreadmillDataPacketTest {
             packet
         )
     }
+
+    @Test
+    fun `absurdly large speed clamps to uint16 max instead of wrapping`() {
+        // 10000 km/h -> 1_000_000 (0x0F4240) which would wrap to 0x4240 if unbounded.
+        // Clamped to 65535 (0xFFFF).
+        val packet = FitnessMachineConstants.buildTreadmillDataPacket(10000f, 0f)
+        assertEquals(0xFF.toByte(), packet[2])
+        assertEquals(0xFF.toByte(), packet[3])
+    }
+
+    @Test
+    fun `large negative incline clamps to sint16 min for incline and ramp`() {
+        // -5000% -> -50000 (below -32768) clamps to -32768 (0x8000 little-endian);
+        // ramp = atan(-50) -> -88.85 deg -> -888 clamps within range but stays negative.
+        val packet = FitnessMachineConstants.buildTreadmillDataPacket(kmh(1f), -5000f)
+        // Inclination clamped to -32768 = 0x8000.
+        assertEquals(0x00.toByte(), packet[4])
+        assertEquals(0x80.toByte(), packet[5])
+        // Ramp = round(atan(-5000/100) deg * 10) = -889 (0xFC87) -> within sint16, negative.
+        assertEquals(0x87.toByte(), packet[6])
+        assertEquals(0xFC.toByte(), packet[7])
+    }
 }
