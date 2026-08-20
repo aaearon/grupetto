@@ -133,6 +133,29 @@ class OverlayDragLogicTest {
     }
 
     @Test
+    fun `vertical drag below the threshold from a side dock keeps the location`() {
+        // Escaping a Left/Right dock vertically uses the same threshold as a
+        // top/bottom flip; just short of it must not redock.
+        val result = drag(OverlayLocation.Left, accumulatedY = 299f)
+
+        assertEquals(OverlayLocation.Left, result.location)
+        assertEquals(299f, result.accumulatedY, 0f)
+        assertEquals(0f, result.originY, 0f)
+    }
+
+    @Test
+    fun `a vertical drag exactly at the threshold does not redock`() {
+        // The comparison is strictly greater-than in both dock orientations.
+        val fromBottom = drag(OverlayLocation.Bottom, accumulatedY = -300f)
+        val fromSide = drag(OverlayLocation.Right, accumulatedY = 300f)
+
+        assertEquals(OverlayLocation.Bottom, fromBottom.location)
+        assertEquals(-300f, fromBottom.accumulatedY, 0f)
+        assertEquals(OverlayLocation.Right, fromSide.location)
+        assertEquals(300f, fromSide.accumulatedY, 0f)
+    }
+
+    @Test
     fun `a docked vertical overlay never slides along either axis`() {
         // The window is already full height, so origin must stay pinned at the edge
         val result = drag(OverlayLocation.Left, accumulatedX = 120f, accumulatedY = 90f)
