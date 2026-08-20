@@ -96,3 +96,34 @@ Log in and reach the home screen (no workout). `start Tangerine User Session wit
 login means the flag is ON and the watch path needs no class. `connected` while
 `currentWorkoutId -> null` proves HR arrived with no workout; `connected` only when
 `currentWorkoutId` is non-null means a workout is still mandatory.
+
+---
+
+## GATT connect invariants (`HeartRateManager`)
+
+Android registers a GATT *client* per `BluetoothDevice.connectGatt()` and only unregisters
+it on `close()` **after** a client interface has been assigned. A connect that is aborted
+before that point (`close()` with `mClientIf=0`) leaks the registry slot permanently. The
+process cap is ~32; past it `connectGatt()` returns **null** and heart rate never connects
+again — silently, if nothing logs. Observed on a Tread (API 29): two `GATT_Connect` calls
+per tap, `wl_direct_connect_timeout_cb`, `status=133`, then nothing.
+
+The rules that keep that from recurring:
+
+- **At most one connect in flight.** `connectToAddress` is `@Synchronized` and gated on an
+  `AtomicBoolean` released by `onConnectionStateChange`, by a null `connectGatt`, and by a
+  `ConnectTimeoutMs` watchdog so a callback that never arrives cannot wedge the guard.
+- **Stop scanning before connecting, never after.** The device picker runs a
+  `SCAN_MODE_LOW_LATENCY` scan; a result delivered mid-connect used to re-enter
+  `maybeAutoConnectSaved` (`_connectedDevice` is still null) and fire a second, overlapping
+  `connectGatt` for the same device.
+- **`disconnect()` and `close()` go in separate `try` blocks.** `close()` is the call that
+  actually frees the registration; a throwing `disconnect()` must not skip it.
+- **Null-check `connectGatt`** and log it at error level — that return is the symptom of an
+  exhausted registry.
+- **Log every `onConnectionStateChange` with address and `status`.** A silent 133 loop is
+  indistinguishable from "the tap did nothing".
+
+All of the above is unit tested in `HeartRateManagerTest` on the JVM. Every Android
+Bluetooth call sits behind `HeartRateBleTransport` purely so those sequencing rules can be
+tested without Robolectric; keep that interface thin and policy-free.

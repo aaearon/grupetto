@@ -1,6 +1,5 @@
 package com.spop.poverlay.sensor.heartrate
 
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -8,12 +7,9 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.SharedPreferences
-import android.os.ParcelUuid
 import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +41,13 @@ object HeartRateManager {
     private const val ReconnectDelayMs = 3_000L
     private const val AutoReconnectScanMs = 10_000L
     private const val StaleHeartRateTimeoutMs = 12_000L
+
+    /**
+     * Upper bound on how long a GATT connect may be considered in flight. Android's own
+     * direct-connect timeout is ~30s; this is the backstop that stops a callback that
+     * never arrives from wedging the in-flight guard forever.
+     */
+    internal const val ConnectTimeoutMs = 45_000L
 
     private val HR_SERVICE: UUID = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")
     private val HR_MEASUREMENT: UUID = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
@@ -91,6 +94,17 @@ object HeartRateManager {
     private var prefs: SharedPreferences? = null
     private var selectedAddress: String? = null
     private val stopped = AtomicBoolean(true)
+
+    /**
+     * Exactly one GATT connect may be in flight at a time. Android registers a client
+     * per `connectGatt` and only unregisters it on `close()` once a client interface has
+     * been assigned, so a second overlapping connect permanently leaks a registry slot;
+     * after ~32 leaks `connectGatt` silently returns null and HR never connects again.
+     */
+    private val connectInFlight = AtomicBoolean(false)
+
+    @Volatile
+    private var connectStartedAtMs: Long = 0L
     private var autoReconnectJob: kotlinx.coroutines.Job? = null
     private var manageSessionJob: kotlinx.coroutines.Job? = null
     private var isManaging = false
@@ -104,6 +118,14 @@ object HeartRateManager {
     private var lastConnectedAtMs: Long = 0L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Test seam: every Android Bluetooth call goes through here. */
+    @Volatile
+    internal var transport: HeartRateBleTransport = DefaultHeartRateBleTransport
+
+    /** Test seam for the connect watchdog clock. */
+    @Volatile
+    internal var nowMs: () -> Long = { System.currentTimeMillis() }
 
     @Synchronized
     fun start(context: Context) {
@@ -138,8 +160,35 @@ object HeartRateManager {
         try { bluetoothGatt?.disconnect() } catch (_: Exception) {}
         try { bluetoothGatt?.close() } catch (_: Exception) {}
         bluetoothGatt = null
+        clearConnectInFlight()
         _heartRate.value = null
         _connectedDevice.value = null
+    }
+
+    /** Test-only: returns the singleton to a pristine state between unit tests. */
+    @Synchronized
+    internal fun resetForTest() {
+        stop()
+        transport = DefaultHeartRateBleTransport
+        nowMs = { System.currentTimeMillis() }
+        appContext = null
+        prefs = null
+        selectedAddress = null
+        manualDisconnectRequested = false
+        isManaging = false
+        discoveryCallback = null
+        clearConnectInFlight()
+        _isScanning.value = false
+        _discoveredDevices.value = emptyList()
+        _savedDevices.value = emptyList()
+        _matchByName.value = false
+        _zone12.value = null
+        _zone23.value = null
+        _zone34.value = null
+        _zone45.value = null
+        _heartRateZones.value = null
+        lastHeartRateAtMs = 0L
+        lastConnectedAtMs = 0L
     }
 
     private fun readIntOrNull(key: String): Int? {
@@ -190,12 +239,8 @@ object HeartRateManager {
     }
 
     fun startDiscovery() {
-        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
-        val scanner = adapter.bluetoothLeScanner ?: return
         if (_isScanning.value) return
 
-        val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(HR_SERVICE)).build()
-        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val device = result.device ?: return
@@ -212,7 +257,10 @@ object HeartRateManager {
 
         discoveryCallback = callback
         try {
-            scanner.startScan(listOf(filter), settings, callback)
+            if (!transport.startHrScan(HR_SERVICE, callback)) {
+                discoveryCallback = null
+                return
+            }
             _isScanning.value = true
         } catch (sec: SecurityException) {
             Timber.w(sec, "Failed to start HR scan")
@@ -222,7 +270,7 @@ object HeartRateManager {
 
     fun stopDiscovery() {
         val callback = discoveryCallback ?: return
-        try { BluetoothAdapter.getDefaultAdapter()?.bluetoothLeScanner?.stopScan(callback) } catch (_: Exception) {}
+        try { transport.stopScan(callback) } catch (_: Exception) {}
         discoveryCallback = null
         _isScanning.value = false
     }
@@ -256,8 +304,12 @@ object HeartRateManager {
         }
     }
 
+    @Synchronized
     fun connectTo(device: HeartRateDevice) {
         manualDisconnectRequested = false
+        // Stop scanning FIRST: a scan result delivered mid-connect used to fire a second,
+        // overlapping connectGatt for the same device.
+        stopDiscovery()
         saveDevice(device)
         selectedAddress = device.address
         connectToAddress(device.address)
@@ -273,6 +325,7 @@ object HeartRateManager {
         _connectedDevice.value = null
         lastConnectedAtMs = 0L
         lastHeartRateAtMs = 0L
+        clearConnectInFlight()
         try { bluetoothGatt?.disconnect() } catch (_: Exception) {}
     }
 
@@ -327,13 +380,16 @@ object HeartRateManager {
     private fun maybeAutoConnectSaved(device: BluetoothDevice): Boolean {
         if (manualDisconnectRequested) return false
         if (_connectedDevice.value != null) return false
+        // A manual connect (or an earlier auto-connect) is already in flight; a second
+        // one would leak a GATT client registration.
+        if (isConnectInFlight()) return false
         val address = device.address ?: return false
 
         // Exact MAC match
         if (_savedDevices.value.any { it.address == address }) {
             selectedAddress = address
-            connectToAddress(address)
             stopDiscovery()
+            connectToAddress(address)
             return true
         }
 
@@ -345,8 +401,8 @@ object HeartRateManager {
             } ?: return false
             updateSavedDeviceAddress(oldAddress = matched.address, newAddress = address, name = deviceName)
             selectedAddress = address
-            connectToAddress(address)
             stopDiscovery()
+            connectToAddress(address)
             return true
         }
 
@@ -377,20 +433,53 @@ object HeartRateManager {
         }
     }
 
+    private fun isConnectInFlight(): Boolean {
+        if (!connectInFlight.get()) return false
+        if (nowMs() - connectStartedAtMs <= ConnectTimeoutMs) return true
+        Timber.w("HR connect to %s timed out with no callback; releasing guard", selectedAddress)
+        clearConnectInFlight()
+        return false
+    }
+
+    private fun clearConnectInFlight() {
+        connectInFlight.set(false)
+        connectStartedAtMs = 0L
+    }
+
+    @Synchronized
     private fun connectToAddress(address: String) {
         val context = appContext ?: return
-        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
-        try {
-            connect(context, adapter.getRemoteDevice(address))
+        if (isConnectInFlight()) {
+            Timber.i("HR connect to %s skipped: a connect is already in flight", address)
+            return
+        }
+        val device = try {
+            transport.getRemoteDevice(address)
         } catch (ex: IllegalArgumentException) {
             Timber.w(ex, "Invalid HR device address: %s", address)
-        }
+            null
+        } ?: return
+        connectInFlight.set(true)
+        connectStartedAtMs = nowMs()
+        connect(context, device)
     }
 
     private fun connect(context: Context, device: BluetoothDevice) {
-        try { bluetoothGatt?.disconnect(); bluetoothGatt?.close() } catch (_: Exception) {}
-        bluetoothGatt = device.connectGatt(context.applicationContext, false, object : BluetoothGattCallback() {
+        // Separate try blocks: a throwing disconnect() must not skip close(), which is
+        // what actually releases the GATT client registration.
+        val previous = bluetoothGatt
+        bluetoothGatt = null
+        if (previous != null) {
+            try { previous.disconnect() } catch (ex: Exception) { Timber.w(ex, "HR gatt disconnect failed") }
+            try { previous.close() } catch (ex: Exception) { Timber.w(ex, "HR gatt close failed") }
+        }
+        val gatt = transport.connectGatt(context, device, object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+                Timber.i(
+                    "HR %s onConnectionStateChange status=%d newState=%d",
+                    device.address, status, newState,
+                )
+                clearConnectInFlight()
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     try { gatt.close() } catch (_: Exception) {}
                     if (bluetoothGatt === gatt) bluetoothGatt = null
@@ -448,6 +537,13 @@ object HeartRateManager {
                 }
             }
         })
+        if (gatt == null) {
+            // Android returns null once the per-process GATT client registry is full.
+            Timber.e("HR connectGatt returned null for %s; GATT client registry likely exhausted", device.address)
+            clearConnectInFlight()
+            return
+        }
+        bluetoothGatt = gatt
     }
 
     private fun scheduleReconnect() {
