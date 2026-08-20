@@ -1,7 +1,7 @@
 package com.spop.poverlay.sensor.interfaces
 
 import android.content.Context
-import android.os.IBinder
+import com.spop.poverlay.sensor.tread.TreadBinding
 import com.spop.poverlay.sensor.tread.TreadCombinedSensor
 import com.spop.poverlay.sensor.tread.getTreadBinder
 import kotlinx.coroutines.Dispatchers
@@ -27,15 +27,15 @@ import timber.log.Timber
  */
 class PelotonTreadSensorInterface(val context: Context) : SensorInterface, CoroutineScope {
 
-    private val binder = MutableSharedFlow<IBinder>(replay = 1)
+    private val binding = MutableSharedFlow<TreadBinding>(replay = 1)
 
     private val job = SupervisorJob()
 
     init {
         launch(Dispatchers.IO) {
             try {
-                val service = getTreadBinder(context)
-                binder.emit(service)
+                val treadBinding = getTreadBinder(context)
+                binding.emit(treadBinding)
                 Timber.d("Tread service connected successfully")
             } catch (e: Exception) {
                 Timber.w(e, "Failed to connect to tread service: ${e.message}")
@@ -55,8 +55,10 @@ class PelotonTreadSensorInterface(val context: Context) : SensorInterface, Corou
         job.cancelChildren()
     }
 
-    private val combinedSensorState = binder.transformLatest { service ->
-        val sensor = TreadCombinedSensor(service, context)
+    private val combinedSensorState = binding.transformLatest { treadBinding ->
+        // Pass the connection so sensor.stop() unbinds it AFTER unregisterCallback,
+        // preventing ServiceConnectionLeaked when this interface is torn down.
+        val sensor = TreadCombinedSensor(treadBinding.binder, context, treadBinding.connection)
         sensor.start()
         emit(sensor)
         try {

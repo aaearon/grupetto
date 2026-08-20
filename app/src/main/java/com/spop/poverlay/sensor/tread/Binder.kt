@@ -16,14 +16,22 @@ const val SERVICE_ACTION = "com.onepeloton.affernetservice.ITreadInterface"
 private const val SERVICE_PACKAGE = "com.onepeloton.affernetservice"
 private const val SERVICE_INTENT = "com.onepeloton.affernetservice.AffernetService"
 
-suspend fun getTreadBinder(context: Context) = suspendCoroutine<IBinder> { ctx ->
+/**
+ * The result of a successful [getTreadBinder] bind. The caller MUST retain the
+ * [connection] for the lifetime of the [binder] and later call
+ * `context.unbindService(connection)` (exactly once) to release the binding;
+ * otherwise the [ServiceConnection] leaks (ServiceConnectionLeaked).
+ */
+data class TreadBinding(val binder: IBinder, val connection: ServiceConnection)
+
+suspend fun getTreadBinder(context: Context) = suspendCoroutine<TreadBinding> { ctx ->
     // The service callbacks below can fire more than once (e.g. onServiceConnected
     // succeeds and onBindingDied fires later), and resuming a continuation twice throws
     // IllegalStateException. Guard so the first of {connected, null binding, died} wins
     // and every later callback is a no-op.
     val resumed = AtomicBoolean(false)
     val connection = object : ServiceConnection {
-        private fun resumeOnce(block: (Continuation<IBinder>) -> Unit) {
+        private fun resumeOnce(block: (Continuation<TreadBinding>) -> Unit) {
             if (resumed.compareAndSet(false, true)) {
                 block(ctx)
             }
@@ -35,7 +43,7 @@ suspend fun getTreadBinder(context: Context) = suspendCoroutine<IBinder> { ctx -
                 Timber.i("Tread sensor service resolution failed $p0")
                 resumeOnce { it.resumeWithException(Exception("Tread sensor service resolution failed")) }
             } else {
-                resumeOnce { it.resume(iBinder) }
+                resumeOnce { it.resume(TreadBinding(iBinder, this)) }
             }
         }
 

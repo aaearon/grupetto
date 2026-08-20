@@ -1,6 +1,7 @@
 package com.spop.poverlay.sensor.tread
 
 import android.content.Context
+import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.Parcel
 import com.spop.poverlay.sensor.TreadData
@@ -32,7 +33,11 @@ internal fun inclinePercentFromRaw(raw: Int): Float = raw / 10f
  */
 class TreadCombinedSensor(
     private val binder: IBinder,
-    private val context: Context
+    private val context: Context,
+    // The ServiceConnection that produced [binder] (see getTreadBinder/TreadBinding).
+    // Retained so [stop] can unbind it and prevent ServiceConnectionLeaked. May be
+    // null in tests that drive the binder directly without a real bind.
+    private val connection: ServiceConnection? = null
 ) {
     private val mutablePower = MutableSharedFlow<Float>(
         replay = 1,
@@ -70,6 +75,7 @@ class TreadCombinedSensor(
     val incline = mutableIncline.asSharedFlow()
 
     private var callbackRegistered = false
+    private var unbound = false
     private val callbackBinder = createCallback()
 
     companion object {
@@ -133,14 +139,35 @@ class TreadCombinedSensor(
     }
 
     fun stop() {
-        if (!callbackRegistered) return
+        // CRITICAL ORDER: unregister the callback (txn 49) FIRST, then unbind the
+        // service. Never unbind while the callback is still registered remotely.
+        if (callbackRegistered) {
+            try {
+                unregisterCallback()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to stop TreadCombinedSensor")
+            } finally {
+                // Reset unconditionally so unregister runs exactly once (idempotent).
+                callbackRegistered = false
+            }
+        }
+        unbind()
+    }
+
+    /**
+     * Release the affernet binding retained from [getTreadBinder]. Idempotent and
+     * safe when [connection] is null (never bound); prevents ServiceConnectionLeaked.
+     * Always called AFTER [unregisterCallback] in [stop].
+     */
+    private fun unbind() {
+        val conn = connection ?: return
+        if (unbound) return
+        unbound = true
         try {
-            unregisterCallback()
+            context.unbindService(conn)
+            Timber.d("Unbound tread service connection")
         } catch (e: Exception) {
-            Timber.e(e, "Failed to stop TreadCombinedSensor")
-        } finally {
-            // Reset unconditionally so unregister runs exactly once (idempotent).
-            callbackRegistered = false
+            Timber.w(e, "Failed to unbind tread service connection")
         }
     }
 
