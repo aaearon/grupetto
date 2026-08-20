@@ -29,11 +29,14 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spop.poverlay.R
 import com.spop.poverlay.overlay.BackgroundColorDefault
 import com.spop.poverlay.overlay.OverlayLocation
+import com.spop.poverlay.overlay.timerFieldFixedWidthDpFor
+import com.spop.poverlay.overlay.timerFontSizeSpFor
 
 
 @Composable
@@ -122,12 +125,23 @@ fun OverlayMinimizedContent(
                 1f
             }
 
+            // No icon, and docked to a side the field is pinned to the chip width so it can
+            // never be the widest child of the vertical Column and widen the whole docked tab.
+            // Docked top or bottom it still sizes to its content.
+            val timerWidthDp = timerFieldFixedWidthDpFor(location)
             OverlayTimerField(
                 modifier = Modifier
-                    .width(80.dp)
+                    .then(
+                        if (timerWidthDp != null) {
+                            Modifier.width(timerWidthDp.dp)
+                        } else {
+                            Modifier.widthIn(min = 48.dp)
+                        }
+                    )
                     .alpha(timerAlpha),
                 timerLabel = timerLabel,
-                iconDrawable = R.drawable.ic_timer
+                iconDrawable = null,
+                fontSize = timerFontSizeSpFor(timerLabel).sp
             )
         }
 
@@ -266,27 +280,34 @@ private fun AxisSpacer(location: OverlayLocation, size: androidx.compose.ui.unit
 private fun OverlayTimerField(
     modifier: Modifier,
     timerLabel: String,
-    iconDrawable: Int,
+    iconDrawable: Int?,
+    fontSize: TextUnit = 19.sp,
 ) {
     Row(
         modifier = modifier
             .wrapContentHeight(),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Image(
-            modifier = Modifier
-                .requiredHeight(20.dp)
-                .requiredWidth(16.dp)
-                .align(Alignment.CenterVertically)
-                .padding(vertical = 4.dp),
-            painter = painterResource(id = iconDrawable),
-            contentDescription = null,
-        )
+        if (iconDrawable != null) {
+            Image(
+                modifier = Modifier
+                    .requiredHeight(20.dp)
+                    .requiredWidth(16.dp)
+                    .align(Alignment.CenterVertically)
+                    .padding(vertical = 4.dp),
+                painter = painterResource(id = iconDrawable),
+                contentDescription = null,
+            )
+        }
         Text(
             timerLabel,
             color = Color.White,
-            fontSize = 19.sp,
+            fontSize = fontSize,
             textAlign = TextAlign.Center,
+            // A label wider than its box used to wrap onto a second line and double the
+            // row height; clipping is far less disruptive than a jumping layout.
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier
                 .fillMaxWidth()
         )
