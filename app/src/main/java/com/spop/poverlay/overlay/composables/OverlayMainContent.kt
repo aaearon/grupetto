@@ -55,6 +55,9 @@ fun OverlayMainContent(
         showHeartRateCard: Boolean,
         incline: String,
         showInclineCard: Boolean,
+        showPowerCard: Boolean,
+        showCadenceCard: Boolean,
+        showResistanceCard: Boolean,
         onMetricSelected: (MetricType) -> Unit,
         onSpeedUnitClicked: () -> Unit,
         onChartClicked: () -> Unit
@@ -90,31 +93,35 @@ fun OverlayMainContent(
     ) {
         val statCardModifier = Modifier.requiredWidth(StatCardWidth)
 
-        StatCard(
-                name = "Power",
-                value = power,
-                unit = "watts",
-                modifier = statCardModifier,
-                iconDrawable = R.drawable.ic_power,
-                maxValue = maxPower,
-                totalValue = totalEnergy,
-                totalUnit = "kJ",
-                color = MetricPowerColor,
-                onClick = { onMetricSelected(MetricType.POWER) }
-        )
+        if (showPowerCard) {
+                StatCard(
+                        name = "Power",
+                        value = power,
+                        unit = "watts",
+                        modifier = statCardModifier,
+                        iconDrawable = R.drawable.ic_power,
+                        maxValue = maxPower,
+                        totalValue = totalEnergy,
+                        totalUnit = "kJ",
+                        color = MetricPowerColor,
+                        onClick = { onMetricSelected(MetricType.POWER) }
+                )
+        }
 
-        StatCard(
-                name = "Cadence",
-                value = rpm,
-                unit = "rpm",
-                modifier = statCardModifier,
-                iconDrawable = R.drawable.ic_cadence,
-                maxValue = maxCadence,
-                totalValue = avgCadence,
-                totalUnit = "avg",
-                color = MetricCadenceColor,
-                onClick = { onMetricSelected(MetricType.CADENCE) }
-        )
+        if (showCadenceCard) {
+                StatCard(
+                        name = "Cadence",
+                        value = rpm,
+                        unit = "rpm",
+                        modifier = statCardModifier,
+                        iconDrawable = R.drawable.ic_cadence,
+                        maxValue = maxCadence,
+                        totalValue = avgCadence,
+                        totalUnit = "avg",
+                        color = MetricCadenceColor,
+                        onClick = { onMetricSelected(MetricType.CADENCE) }
+                )
+        }
 
         val chartWidth =
                 if (shrinkChart) {
@@ -158,18 +165,20 @@ fun OverlayMainContent(
             )
         }
 
-        StatCard(
-                name = "Resistance",
-                value = resistance,
-                unit = "%",
-                modifier = statCardModifier,
-                iconDrawable = R.drawable.ic_resistance,
-                maxValue = maxResistance,
-                totalValue = avgResistance,
-                totalUnit = "avg",
-                color = MetricResistanceColor,
-                onClick = { onMetricSelected(MetricType.RESISTANCE) }
-        )
+        if (showResistanceCard) {
+                StatCard(
+                        name = "Resistance",
+                        value = resistance,
+                        unit = "%",
+                        modifier = statCardModifier,
+                        iconDrawable = R.drawable.ic_resistance,
+                        maxValue = maxResistance,
+                        totalValue = avgResistance,
+                        totalUnit = "avg",
+                        color = MetricResistanceColor,
+                        onClick = { onMetricSelected(MetricType.RESISTANCE) }
+                )
+        }
 
         StatCard(
                 name = "Speed",

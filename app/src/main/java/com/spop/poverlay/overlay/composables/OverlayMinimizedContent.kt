@@ -42,7 +42,12 @@ fun OverlayMinimizedContent(
     cadenceLabel: String,
     speedLabel: String,
     resistanceLabel: String,
+    inclineLabel: String,
     heartRateLabel: String,
+    showPowerField: Boolean,
+    showCadenceField: Boolean,
+    showResistanceField: Boolean,
+    showInclineField: Boolean,
     contentAlpha: Float,
     timerLabel: String,
     timerPaused: Boolean,
@@ -154,30 +159,46 @@ fun OverlayMinimizedContent(
         )
 
         if (isMinimized) {
-            Spacer(modifier = Modifier.width(4.dp))
-            OverlayTimerField(
-                modifier = Modifier.width(58.dp),
-                timerLabel = powerLabel,
-                iconDrawable = R.drawable.ic_power
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            OverlayTimerField(
-                modifier = Modifier.width(58.dp),
-                timerLabel = cadenceLabel,
-                iconDrawable = R.drawable.ic_cadence
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            OverlayTimerField(
-                modifier = Modifier.width(58.dp),
-                timerLabel = resistanceLabel,
-                iconDrawable = R.drawable.ic_resistance
-            )
+            if (showPowerField) {
+                Spacer(modifier = Modifier.width(4.dp))
+                OverlayTimerField(
+                    modifier = Modifier.width(58.dp),
+                    timerLabel = powerLabel,
+                    iconDrawable = R.drawable.ic_power
+                )
+            }
+            if (showCadenceField) {
+                Spacer(modifier = Modifier.width(4.dp))
+                OverlayTimerField(
+                    modifier = Modifier.width(58.dp),
+                    timerLabel = cadenceLabel,
+                    iconDrawable = R.drawable.ic_cadence
+                )
+            }
+            if (showResistanceField) {
+                Spacer(modifier = Modifier.width(4.dp))
+                OverlayTimerField(
+                    modifier = Modifier.width(58.dp),
+                    timerLabel = resistanceLabel,
+                    iconDrawable = R.drawable.ic_resistance
+                )
+            }
             Spacer(modifier = Modifier.width(4.dp))
             OverlayTimerField(
                 modifier = Modifier.width(58.dp),
                 timerLabel = speedLabel,
                 iconDrawable = R.drawable.ic_speed
             )
+            if (showInclineField) {
+                // Reuses ic_speed until a dedicated incline drawable is added,
+                // matching the main content's incline card.
+                Spacer(modifier = Modifier.width(4.dp))
+                OverlayTimerField(
+                    modifier = Modifier.width(58.dp),
+                    timerLabel = inclineLabel,
+                    iconDrawable = R.drawable.ic_speed
+                )
+            }
             Spacer(modifier = Modifier.width(4.dp))
             OverlayTimerField(
                 modifier = Modifier.width(58.dp),

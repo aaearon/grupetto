@@ -34,6 +34,26 @@ enum class MetricType {
 }
 
 /**
+ * The device-appropriate set of primary metric cards, in display order.
+ *
+ * A treadmill reports real speed and incline but always 0 for cadence/resistance,
+ * and its power is only a rough derived approximation, so those cards are hidden.
+ * A bike shows the full power/cadence/resistance/speed set. This is the single
+ * source of truth for which metrics appear and which are selectable for the chart,
+ * keeping the main and minimized overlays consistent. Heart rate (runtime-gated on
+ * a connected monitor) and calories are common to both and handled separately.
+ */
+fun deviceMetrics(deviceType: DeviceType): List<MetricType> = when (deviceType) {
+    DeviceType.Tread -> listOf(MetricType.SPEED, MetricType.INCLINE)
+    DeviceType.Bike -> listOf(
+        MetricType.POWER, MetricType.CADENCE, MetricType.RESISTANCE, MetricType.SPEED
+    )
+}
+
+/** The metric shown on the chart by default: the device's primary metric. */
+fun defaultMetricFor(deviceType: DeviceType): MetricType = deviceMetrics(deviceType).first()
+
+/**
  * Calorie calculation constants using Gross Mechanical Efficiency (GME) method:
  * 
  * 1. Calculate mechanical work: Power (W) × Time (s) = Energy in Joules
@@ -70,6 +90,21 @@ class OverlaySensorViewModel(
     }
 
 
+    // Device-appropriate metric set (single source of truth). See deviceMetrics().
+    private val visibleMetrics = deviceMetrics(sensorInterface.deviceType)
+
+    /** Default chart metric for this device (Power on a bike, Speed on a tread). */
+    val defaultMetric = defaultMetricFor(sensorInterface.deviceType)
+
+    /** Which primary metric cards to show, derived from [visibleMetrics]. */
+    val showPowerCard = MetricType.POWER in visibleMetrics
+    val showCadenceCard = MetricType.CADENCE in visibleMetrics
+    val showResistanceCard = MetricType.RESISTANCE in visibleMetrics
+    val showSpeedCard = MetricType.SPEED in visibleMetrics
+
+    // A treadmill reports incline; a bike does not, so only show the card for a Tread.
+    val showInclineCard = MetricType.INCLINE in visibleMetrics
+
     //TODO: Move this logic to dialog view model
     private val mutableIsMinimized = MutableStateFlow(false)
     val isMinimized = mutableIsMinimized.asStateFlow()
@@ -77,7 +112,7 @@ class OverlaySensorViewModel(
     private val mutableErrorMessage = MutableStateFlow<String?>(null)
     val errorMessage = mutableErrorMessage.asStateFlow()
 
-    private val mutableSelectedMetric = MutableStateFlow(MetricType.POWER)
+    private val mutableSelectedMetric = MutableStateFlow(defaultMetric)
     val selectedMetric = mutableSelectedMetric.asStateFlow()
 
     fun onDismissErrorPressed() {
@@ -282,9 +317,6 @@ class OverlaySensorViewModel(
     val inclineValue = sensorInterface.incline
         .sample(UiUpdatePeriod)
         .map { "%.1f".format(it) }
-
-    // A treadmill reports incline; a bike does not, so only show the card for a Tread.
-    val showInclineCard = sensorInterface.deviceType == DeviceType.Tread
 
     fun onClickedSpeedUnit() {
         viewModelScope.launch {

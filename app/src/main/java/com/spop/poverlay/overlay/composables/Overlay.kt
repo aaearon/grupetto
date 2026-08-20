@@ -59,7 +59,7 @@ fun Overlay(
 ) {
     val power by sensorViewModel.powerValue.collectAsState(initial = SensorValuePlaceholderText)
 
-    val selectedMetric by sensorViewModel.selectedMetric.collectAsState(initial = MetricType.POWER)
+    val selectedMetric by sensorViewModel.selectedMetric.collectAsState(initial = sensorViewModel.defaultMetric)
     val currentGraph = remember(selectedMetric) { sensorViewModel.getGraphForMetric(selectedMetric) }
     val rpm by sensorViewModel.rpmValue.collectAsState(initial = SensorValuePlaceholderText)
     val resistance by sensorViewModel.resistanceValue.collectAsState(initial = SensorValuePlaceholderText)
@@ -104,7 +104,7 @@ fun Overlay(
     val location by locationState
     LaunchedEffect(showHeartRateCard, selectedMetric) {
         if (!showHeartRateCard && selectedMetric == MetricType.HEART_RATE) {
-            sensorViewModel.onMetricSelected(MetricType.POWER)
+            sensorViewModel.onMetricSelected(sensorViewModel.defaultMetric)
         }
     }
 
@@ -169,7 +169,12 @@ fun Overlay(
             cadenceLabel = rpm,
             speedLabel = speed,
             resistanceLabel = resistance,
+            inclineLabel = incline,
             heartRateLabel = heartRate?.toString() ?: SensorValuePlaceholderText,
+            showPowerField = sensorViewModel.showPowerCard,
+            showCadenceField = sensorViewModel.showCadenceCard,
+            showResistanceField = sensorViewModel.showResistanceCard,
+            showInclineField = sensorViewModel.showInclineCard,
             onTap = { timerViewModel.onTimerTap() },
             onLongPress = { timerViewModel.onTimerLongPress() },
             onOpenSettings = { sensorViewModel.onOverlayDoubleTap() },
@@ -243,6 +248,9 @@ fun Overlay(
                 showHeartRateCard = showHeartRateCard,
                 incline = incline,
                 showInclineCard = sensorViewModel.showInclineCard,
+                showPowerCard = sensorViewModel.showPowerCard,
+                showCadenceCard = sensorViewModel.showCadenceCard,
+                showResistanceCard = sensorViewModel.showResistanceCard,
                 onMetricSelected = { sensorViewModel.onMetricSelected(it) },
                 onSpeedUnitClicked = { sensorViewModel.onClickedSpeedUnit() },
                 onChartClicked = { sensorViewModel.onOverlayPressed() }
