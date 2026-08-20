@@ -5,12 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import kotlinx.coroutines.suspendCancellableCoroutine
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 
 const val SERVICE_ACTION = "com.onepeloton.affernetservice.ITreadInterface"
 private const val SERVICE_PACKAGE = "com.onepeloton.affernetservice"
@@ -24,7 +24,7 @@ private const val SERVICE_INTENT = "com.onepeloton.affernetservice.AffernetServi
  */
 data class TreadBinding(val binder: IBinder, val connection: ServiceConnection)
 
-suspend fun getTreadBinder(context: Context) = suspendCoroutine<TreadBinding> { ctx ->
+suspend fun getTreadBinder(context: Context) = suspendCancellableCoroutine<TreadBinding> { ctx ->
     // The service callbacks below can fire more than once (e.g. onServiceConnected
     // succeeds and onBindingDied fires later), and resuming a continuation twice throws
     // IllegalStateException. Guard so the first of {connected, null binding, died} wins
@@ -77,6 +77,22 @@ suspend fun getTreadBinder(context: Context) = suspendCoroutine<TreadBinding> { 
         context.unbindService(connection)
         if (resumed.compareAndSet(false, true)) {
             ctx.resumeWithException(Exception("Tread sensor service bind could not be initiated"))
+        }
+        return@suspendCancellableCoroutine
+    }
+
+    // The bind is now in flight. If the caller's scope is cancelled before any callback
+    // arrives (e.g. PelotonTreadSensorInterface.stop() -> job.cancelChildren() during a
+    // quick restart) no callback will ever resume us, so unbind here or the
+    // ServiceConnection leaks (ServiceConnectionLeaked) and keeps AffernetService bound.
+    // The same `resumed` flag the callbacks use guarantees this runs at most once and
+    // never after a callback already won the race (that path hands the unbind to the
+    // caller via TreadBinding, or has already unbound itself).
+    ctx.invokeOnCancellation {
+        if (resumed.compareAndSet(false, true)) {
+            Timber.i("Tread sensor service bind cancelled in flight; unbinding")
+            runCatching { context.unbindService(connection) }
+                .onFailure { Timber.w(it, "Unbind after cancelled tread bind failed") }
         }
     }
 }

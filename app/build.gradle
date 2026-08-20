@@ -81,6 +81,9 @@ android {
     lint {
         disable 'ExpiredTargetSdkVersion'
     }
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
     tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
         kotlinOptions {
             freeCompilerArgs += [
