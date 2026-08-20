@@ -1,7 +1,8 @@
 # Peloton Tread support — reverse-engineering research & implementation brief
 
-**Status:** Research complete. No production code written yet. This document is the
-input for implementing Tread support in grupetto (`com.spop.poverlay`).
+**Status:** Research complete. Production implementation and tests exist on branch
+`feature/tread-support` (PR #2); on-device verification still pending. This document
+was the input for implementing Tread support in grupetto (`com.spop.poverlay`).
 
 **Audience:** an LLM (or engineer) implementing the feature. Read this whole file
 before writing code. Everything marked **CONFIRMED (hardware)** was verified on a

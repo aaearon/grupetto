@@ -33,10 +33,12 @@ suspend fun getTreadBinder(context: Context) = suspendCoroutine<IBinder> { ctx -
             override fun onBindingDied(name: ComponentName?) {
                 super.onBindingDied(name)
                 Timber.i("Tread sensor service binding died $name")
+                ctx.resumeWithException(Exception("Tread sensor service resolution failed"))
             }
 
             override fun onNullBinding(name: ComponentName?) {
                 Timber.i("Tread sensor service null binding $name")
+                ctx.resumeWithException(Exception("Tread sensor service resolution failed"))
             }
 
             override fun onServiceDisconnected(p0: ComponentName?) {

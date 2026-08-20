@@ -29,6 +29,8 @@ class PelotonTreadSensorInterface(val context: Context) : SensorInterface, Corou
 
     private val binder = MutableSharedFlow<IBinder>(replay = 1)
 
+    private val job = SupervisorJob()
+
     init {
         launch(Dispatchers.IO) {
             try {
@@ -44,13 +46,13 @@ class PelotonTreadSensorInterface(val context: Context) : SensorInterface, Corou
     }
 
     override val coroutineContext: CoroutineContext
-        get() = SupervisorJob()
+        get() = job
 
     override val deviceType: DeviceType
         get() = DeviceType.Tread
 
     fun stop() {
-        coroutineContext.cancelChildren()
+        job.cancelChildren()
     }
 
     private val combinedSensorState = binder.transformLatest { service ->
