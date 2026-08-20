@@ -39,14 +39,13 @@ import com.spop.poverlay.R
 import com.spop.poverlay.sensor.CadenceWatchdog
 import com.spop.poverlay.sensor.DeadSensorDetector
 import com.spop.poverlay.sensor.SensorSelection
-import com.spop.poverlay.sensor.interfaces.DeviceType
 import com.spop.poverlay.sensor.interfaces.DummySensorInterface
 import com.spop.poverlay.sensor.interfaces.PelotonBikeSensorInterfaceV1New
 import com.spop.poverlay.sensor.interfaces.PelotonBikePlusSensorInterface
 import com.spop.poverlay.sensor.interfaces.PelotonTreadSensorInterface
 import com.spop.poverlay.sensor.selectSensor
-import com.spop.poverlay.sensor.tread.TreadAwareSensorInterface
 import com.spop.poverlay.util.IsBikePlus
+import com.spop.poverlay.util.IsTread
 import com.spop.poverlay.util.IsG700CrossTrainer
 import com.spop.poverlay.util.IsRunningOnPeloton
 import com.spop.poverlay.util.LifecycleEnabledService
@@ -169,35 +168,29 @@ class OverlayService : LifecycleEnabledService() {
             resources.displayMetrics.heightPixels.toFloat()
         )
 
-        // NEVER bind-probe on the main thread: it is a ~3s suspend op and blocking
-        // Service.onCreate on it risks an ANR. Build the non-Tread selection
-        // synchronously (zero delay); on a Peloton, TreadAwareSensorInterface swaps
-        // in the Tread delegate off-thread once the shared cached probe resolves and
-        // its flows re-target it live. Non-Peloton => no probe, no wrapper, no delay.
-        // Seed the default from the persisted detected type (same as GrupettoApplication),
-        // so a known Tread starts with the treadmill metric set instead of always starting
-        // bike-shaped. TreadAwareSensorInterface still confirms/corrects off-thread.
-        val persistedIsTread =
-            ConfigurationRepository.readDetectedDeviceType(this) == DeviceType.Tread
-        val default = when (
-            selectSensor(IsRunningOnPeloton, persistedIsTread, IsG700CrossTrainer || IsBikePlus)
+        // Detection is synchronous and model-based (util.IsTread): the Tread reports a
+        // distinct model string (PLTN-TTR01), so the correct interface (and metric set)
+        // is chosen from the first frame with zero delay and no ANR risk. A bind-probe
+        // was unreliable — AffernetService returns a non-null ITreadInterface binder on
+        // a bike too, so it misdetected bikes as Treads (Incline+Speed HUD on a bike).
+        val sensorInterface = when (
+            selectSensor(IsRunningOnPeloton, IsTread, IsG700CrossTrainer || IsBikePlus)
         ) {
             SensorSelection.Tread -> PelotonTreadSensorInterface(this)
             SensorSelection.BikePlus -> PelotonBikePlusSensorInterface(this)
             SensorSelection.BikeV1 -> PelotonBikeSensorInterfaceV1New(this)
             SensorSelection.Dummy -> EmulatorSensorInterface
         }
-        val sensorInterface = if (IsRunningOnPeloton) {
-            TreadAwareSensorInterface(this, default).also { wrapper ->
-                lifecycle.addObserver(LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_DESTROY) {
-                        wrapper.stop()
-                    }
-                })
+        // Stop the sensor interface when the service is destroyed to release bindings.
+        lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_DESTROY) {
+                when (sensorInterface) {
+                    is PelotonTreadSensorInterface -> sensorInterface.stop()
+                    is PelotonBikeSensorInterfaceV1New -> sensorInterface.stop()
+                    is PelotonBikePlusSensorInterface -> sensorInterface.stop()
+                }
             }
-        } else {
-            default
-        }
+        })
 
         val timerViewModel = OverlayTimerViewModel(
             application,

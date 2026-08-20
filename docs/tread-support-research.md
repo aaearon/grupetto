@@ -402,24 +402,31 @@ safety key).
 
 ---
 
-## 8. Detecting a Tread (CONFIRMED — corrects an earlier assumption)
+## 8. Detecting a Tread (CONFIRMED by device — model string, NOT bind-probe)
 
-**`Build.MODEL == "PLTN-TTR01"` does NOT mean Tread.** It is the shared Gen-3 tablet
-used by Bike+, Tread, and Row (independently confirmed: a Bike+ user reports the
-identical model and build fingerprint). grupetto's existing
-`util/Peloton.kt` `IsBikePlus` check (`Build.MODEL.contains("PLTN-T")`) therefore
-matches a Tread too — a real latent bug.
+**Detection is by model string.** Peloton's decompiled `PlatformConstants` assigns a
+distinct `ro.product.model` per platform, and this was confirmed on the physical
+machines via `adb shell getprop ro.product.model`:
+- Tread (Prism / Topaz): `PLTN-TTR01` (and `PLTN-TTR01-2`) — confirmed on-device.
+- Bike v1 (Qbert): `PLTN-RB1VQ` — confirmed on-device.
+- Bike+ (G700): `g700`.
 
-Detect the Tread by **platform, not model**:
-- Preferred: bind `ITreadInterface`; if `onBind` returns a non-null binder and a
-  `TreadData` callback arrives, it's a Tread (Prism). This is what Peloton's own
-  code effectively relies on (USB VID/PID → `Platform.PRISM` → `isTread()`).
-- The USB signature is Peloton VID `0x317E` + Prism PID (`0xA004`/`0xA00E`/`0xA00F`),
-  but a normal app can't read sysfs USB attributes under SELinux — bind-probing is
-  the practical detector.
-- Order any model-string checks so Tread/Row are distinguished **before** falling
-  into the Bike+ branch, or narrow `IsBikePlus`. Add a test that asserts a Tread is
-  not classified as Bike+.
+So the model IS a reliable discriminator. `util/Peloton.kt` now exposes
+`isTreadModel(model)` / `IsTread` (matches `PLTN-TTR01*`), and `selectSensor(...)` is
+fed `IsTread` synchronously at both call sites (`GrupettoApplication`, `OverlayService`).
+Tread is checked **before** the Bike+/V1 branch so the shared `PLTN-T` prefix in the
+old `IsBikePlus` check can't misclassify it.
+
+**Do NOT use the bind-probe.** An earlier version detected "non-null `ITreadInterface`
+binder ⇒ Tread". This is FALSE and caused a Bike v1 to be misdetected as a Tread
+(Incline+Speed HUD on a bike). Root cause, confirmed in the Bike's affernetservice
+3.0.1 `AffernetService`: `onCreate()` unconditionally instantiates **every** helper
+(`treadServiceHelper = new TreadServiceHelper(...)`) regardless of platform, so
+`onBind(ITreadInterface)` returns `treadServiceHelper.getBinder()` — a non-null binder —
+even on a bike. The bind-probe therefore always returned non-null.
+
+`ITreadInterface` binding is still used, but only by `PelotonTreadSensorInterface` to
+READ data once a Tread has already been selected by model — never as the detector.
 
 ---
 

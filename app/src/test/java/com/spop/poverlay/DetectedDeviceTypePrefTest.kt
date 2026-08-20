@@ -7,11 +7,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Pure tests for persisting/reading the detected [DeviceType] and its effect on the
- * synchronous startup selection (see GrupettoApplication.createSensorInterface). These
- * guard the race fix: on every launch after the first, the persisted type must seed a
- * Tread default so BleServer.start() builds Treadmill Data (0x2ACD), not Indoor Bike
- * Data (0x2AD2), before the ~3s bind-probe resolves.
+ * Pure tests for the [DeviceType] pref serialization and the synchronous startup
+ * selection (see GrupettoApplication.createSensorInterface). Detection is now model-based
+ * and synchronous (util.isTreadModel), so a Tread selects the Tread interface from the
+ * first frame and BleServer.start() builds Treadmill Data (0x2ACD), not Indoor Bike Data
+ * (0x2AD2), with no bind-probe race. The pref only carries the (still supported) manual
+ * device-type serialization.
  */
 class DetectedDeviceTypePrefTest {
 

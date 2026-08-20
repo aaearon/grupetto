@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -269,6 +270,12 @@ fun Overlay(
     }
 
 
+    // The overlay Box is laid out with unbounded constraints so its content can extend
+    // past the window bounds. A Snackbar internally applies fillMaxWidth(), which under
+    // an unbounded (infinite) max width crashes in measure ("Can't represent a size ...
+    // in Constraints"). Cap the Snackbar to the screen width so it always has a bounded
+    // width regardless of the unbounded parent.
+    val maxSnackbarWidth = LocalConfiguration.current.screenWidthDp.dp
     Box(
         modifier = Modifier
             .wrapContentSize(unbounded = true)
@@ -282,6 +289,7 @@ fun Overlay(
                 },
                 backgroundColor = Color.White,
                 modifier = Modifier
+                    .widthIn(max = maxSnackbarWidth)
                     .padding(8.dp)
                     .zIndex(1f)
             ) {

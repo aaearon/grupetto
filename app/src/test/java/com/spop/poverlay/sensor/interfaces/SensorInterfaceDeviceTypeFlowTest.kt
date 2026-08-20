@@ -9,8 +9,8 @@ import org.junit.Test
 
 /**
  * Locks the additive [SensorInterface.deviceTypeFlow] contract: a fixed interface's
- * reactive device-type view emits its single [SensorInterface.deviceType]. Swappable
- * wrappers (TreadAwareSensorInterface) override this to emit each new type live.
+ * reactive device-type view emits its single [SensorInterface.deviceType]. Detection is
+ * model-based and synchronous, so the chosen interface is fixed for the process lifetime.
  */
 class SensorInterfaceDeviceTypeFlowTest {
 

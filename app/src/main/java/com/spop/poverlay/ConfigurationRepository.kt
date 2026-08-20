@@ -33,23 +33,6 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
         /** Parse a stored [Preferences.DetectedDeviceType] value, defaulting to [DeviceType.Bike]. */
         fun deviceTypeFromPref(stored: String?): DeviceType =
             if (stored == DeviceType.Tread.name) DeviceType.Tread else DeviceType.Bike
-
-        /**
-         * Synchronous read of the persisted detected device type, for callers with no
-         * [ConfigurationRepository] instance (Application/BleServer startup). Mirrors the
-         * raw-prefs access already used by [com.spop.poverlay.overlay.OverlayService].
-         */
-        fun readDetectedDeviceType(context: Context): DeviceType =
-            deviceTypeFromPref(
-                context.getSharedPreferences(SharedPrefsName, Context.MODE_PRIVATE)
-                    .getString(Preferences.DetectedDeviceType.key, null)
-            )
-
-        /** Persist the detected device type from a caller with no repository instance. */
-        fun persistDetectedDeviceType(context: Context, type: DeviceType) {
-            context.getSharedPreferences(SharedPrefsName, Context.MODE_PRIVATE)
-                .edit { putString(Preferences.DetectedDeviceType.key, deviceTypeToPref(type)) }
-        }
     }
 
     private val mutableShowTimerWhenMinimized = MutableStateFlow(true)

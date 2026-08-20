@@ -93,10 +93,9 @@ class OverlaySensorViewModel(
     }
 
 
-    // Reactive device type. With TreadAwareSensorInterface the active delegate (and thus
-    // deviceType) can change after the async bind-probe swaps Bike->Tread; deriving the
-    // metric set from this flow lets the overlay update its cards without an app restart.
-    // Fixed interfaces emit a single value, so bike behavior is unchanged.
+    // Reactive device type. Detection is model-based and synchronous, so the interface
+    // is fixed at construction and this flow emits a single, correct value; deriving the
+    // metric set from it keeps the overlay's cards consistent with the chosen device.
     private val deviceType: StateFlow<DeviceType> =
         sensorInterface.deviceTypeFlow.stateIn(
             viewModelScope, SharingStarted.Eagerly, sensorInterface.deviceType

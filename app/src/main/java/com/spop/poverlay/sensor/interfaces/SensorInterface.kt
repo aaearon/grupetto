@@ -24,10 +24,10 @@ interface SensorInterface {
         get() = DeviceType.Bike
 
     /**
-     * Reactive view of [deviceType]. Fixed interfaces emit their single type; a wrapper
-     * whose active delegate can change (e.g. [com.spop.poverlay.sensor.tread.TreadAwareSensorInterface])
-     * overrides this to emit each new type as it swaps, so the overlay can re-derive its
-     * visible metric set without an app restart.
+     * Reactive view of [deviceType]. Fixed interfaces emit their single type. Detection
+     * is model-based and synchronous, so the correct interface is chosen at construction
+     * and the type never changes at runtime; this stays a Flow so the overlay can observe
+     * it uniformly.
      */
     val deviceTypeFlow: Flow<DeviceType>
         get() = flowOf(deviceType)
