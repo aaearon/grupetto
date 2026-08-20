@@ -87,9 +87,11 @@ class OverlayService : LifecycleEnabledService() {
         const val VerticalMoveDragThreshold = .5f
 
         //The percentage left or right a horizontal drag must go before the overlay is
-        //relocated. When docked top or bottom this is measured past the slide clamp.
+        //relocated. When docked top or bottom this is measured past the slide clamp, so
+        //the finger has already travelled the slide distance before it starts counting -
+        //keep it small enough that the whole gesture fits on the screen.
         //Defined relative to the width of the screen
-        const val HorizontalMoveDragThreshold = .5f
+        const val HorizontalMoveDragThreshold = .2f
 
         // Replace with DeadSensorInterface to simulate a dead sensor
         val EmulatorSensorInterface by lazy { DummySensorInterface() }
@@ -285,6 +287,7 @@ class OverlayService : LifecycleEnabledService() {
                     OverlayVerticalWidthDp,
                     dialogViewModel.dialogLocation.collectAsState(),
                     dialogViewModel::processDrag,
+                    dialogViewModel::onDragStart,
                     dialogViewModel::processHideProgress,
                     dialogViewModel::onOverlayLayout,
                     dialogViewModel::onTimerOverlayLayout
@@ -312,10 +315,7 @@ class OverlayService : LifecycleEnabledService() {
                     dialogViewModel.partialOverlayFlags,
                     dialogViewModel.touchTargetExtent,
                     dialogViewModel.dialogSizeParams,
-                    dialogViewModel.minimizedDialogSizeParams,
-                    // Minimizing changes the window's width when docked to a side, so
-                    // it has to re-run the layout even when nothing else emits
-                    sensorViewModel.isMinimized
+                    dialogViewModel.minimizedDialogSizeParams
                 ) { values ->
                     val origin = values[0] as Offset
                     val location = values[1] as OverlayLocation
@@ -325,11 +325,9 @@ class OverlayService : LifecycleEnabledService() {
                     val expandedSize = values[4] as Pair<Int, Int>
                     @Suppress("UNCHECKED_CAST")
                     val minimizedSize = values[5] as Pair<Int, Int>
-                    val isMinimized = values[6] as Boolean
 
                     val geometry = overlayWindowGeometry(
                         location = location,
-                        isMinimized = isMinimized,
                         expandedSize = expandedSize,
                         minimizedSize = minimizedSize,
                         touchExtent = touchTargetExtent.roundToInt()

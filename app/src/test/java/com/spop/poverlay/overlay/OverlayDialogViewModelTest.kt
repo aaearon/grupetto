@@ -99,4 +99,116 @@ class OverlayDialogViewModelTest {
         assertEquals(0f, viewModel.touchTargetExtent.value, 0f)
         assertEquals(0, viewModel.partialOverlayFlags.value)
     }
+
+    // --- Gesture seeding (drag start) ---------------------------------------
+    // A Bike-sized screen: 1920x1080 with a 1118px wide overlay gives the 401px
+    // slide clamp and the 540px vertical flip threshold measured on hardware.
+    private val bikeMinimized = MutableStateFlow(false)
+    private val bikeViewModel = OverlayDialogViewModel(Size(1920f, 1080f), bikeMinimized)
+
+    private fun bikeLayout() {
+        bikeViewModel.onOverlayLayout(IntSize(1118, 110))
+        bikeViewModel.onTimerOverlayLayout(IntSize(300, 30))
+    }
+
+    /** Replays a whole gesture: seed from the drag start, then apply the deltas. */
+    private fun gesture(
+        viewModel: OverlayDialogViewModel,
+        vararg deltas: Pair<Float, Float>
+    ): OverlayDragResult {
+        var (x, y) = viewModel.onDragStart()
+        var result = OverlayDragResult(viewModel.dialogLocation.value, 0f, 0f, x, y)
+        for ((dx, dy) in deltas) {
+            x += dx
+            y += dy
+            result = viewModel.processDrag(x, y)
+            x = result.accumulatedX
+            y = result.accumulatedY
+        }
+        return result
+    }
+
+    @Test
+    fun `a new gesture continues from the current origin instead of jumping to center`() {
+        bikeLayout()
+        gesture(bikeViewModel, -175f to 0f)
+        assertEquals(-175f, bikeViewModel.dialogOrigin.value.x, 0f)
+
+        // A fresh 30px nudge further left must land at -205, not near 0
+        gesture(bikeViewModel, -30f to 0f)
+
+        assertEquals(-205f, bikeViewModel.dialogOrigin.value.x, 0f)
+        assertEquals(OverlayLocation.Bottom, bikeViewModel.dialogLocation.value)
+    }
+
+    @Test
+    fun `successive gestures accumulate until the slide clamp is reached`() {
+        bikeLayout()
+
+        gesture(bikeViewModel, -200f to 0f)
+        assertEquals(-200f, bikeViewModel.dialogOrigin.value.x, 0f)
+
+        gesture(bikeViewModel, -200f to 0f)
+        assertEquals(-400f, bikeViewModel.dialogOrigin.value.x, 0f)
+
+        gesture(bikeViewModel, -200f to 0f)
+
+        // Clamped at (1920 - 1118) / 2 = 401 and still docked bottom
+        assertEquals(-401f, bikeViewModel.dialogOrigin.value.x, 0f)
+        assertEquals(OverlayLocation.Bottom, bikeViewModel.dialogLocation.value)
+    }
+
+    @Test
+    fun `an overshoot from the clamp in a later gesture still docks to the left`() {
+        bikeLayout()
+        gesture(bikeViewModel, -500f to 0f)
+        assertEquals(-401f, bikeViewModel.dialogOrigin.value.x, 0f)
+
+        // Threshold is 1920 * .2 = 384 beyond the 401 clamp
+        val result = gesture(bikeViewModel, -400f to 0f)
+
+        assertEquals(OverlayLocation.Left, bikeViewModel.dialogLocation.value)
+        assertEquals(Offset.Zero, bikeViewModel.dialogOrigin.value)
+        assertEquals(0f, result.accumulatedX, 0f)
+        assertEquals(0f, result.accumulatedY, 0f)
+    }
+
+    @Test
+    fun `a redock is not resurrected by the next gestures seed`() {
+        bikeLayout()
+        gesture(bikeViewModel, -900f to 0f)
+        assertEquals(OverlayLocation.Left, bikeViewModel.dialogLocation.value)
+
+        assertEquals(0f to 0f, bikeViewModel.onDragStart())
+    }
+
+    @Test
+    fun `a gesture while docked to a side seeds zero and does not slide`() {
+        bikeLayout()
+        gesture(bikeViewModel, -900f to 0f)
+        assertEquals(OverlayLocation.Left, bikeViewModel.dialogLocation.value)
+
+        assertEquals(0f to 0f, bikeViewModel.onDragStart())
+
+        gesture(bikeViewModel, 50f to 0f)
+
+        assertEquals(Offset.Zero, bikeViewModel.dialogOrigin.value)
+        assertEquals(OverlayLocation.Left, bikeViewModel.dialogLocation.value)
+    }
+
+    @Test
+    fun `the vertical accumulator is not carried across gestures`() {
+        bikeLayout()
+
+        // 400px is short of the 540px flip threshold
+        gesture(bikeViewModel, 0f to 400f)
+        assertEquals(OverlayLocation.Bottom, bikeViewModel.dialogLocation.value)
+
+        assertEquals(0f, bikeViewModel.onDragStart().second, 0f)
+
+        // A further 200px would trip 540 if it were carried over
+        gesture(bikeViewModel, 0f to 200f)
+
+        assertEquals(OverlayLocation.Bottom, bikeViewModel.dialogLocation.value)
+    }
 }

@@ -56,6 +56,26 @@ class OverlayDialogViewModel(
     }
 
     /**
+     * The accumulators a new drag gesture should start from.
+     *
+     * The window keeps its horizontal slide between gestures, so a fresh gesture has to be
+     * seeded with the current horizontal origin; otherwise the first movement of the new
+     * gesture computes an origin near zero and the overlay teleports back to the center.
+     * Seeding from the (already clamped) origin also means the bar does not move until the
+     * finger does.
+     *
+     * The vertical accumulator always starts at zero: the window never free-slides
+     * vertically, so carrying it over would let leftover travel trip a surprise
+     * top/bottom flip. Docked left or right the origin is always zero, so this is a no-op.
+     *
+     * @return the horizontal and vertical accumulators to begin the gesture with
+     */
+    fun onDragStart(): Pair<Float, Float> {
+        if (dialogLocation.value.isVertical) return 0f to 0f
+        return dialogOrigin.value.x to 0f
+    }
+
+    /**
      * Applies a drag to the window position and returns the new drag state so the caller
      * can carry the (raw, unclamped) accumulators forward.
      */

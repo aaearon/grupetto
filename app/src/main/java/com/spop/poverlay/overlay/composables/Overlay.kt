@@ -55,6 +55,7 @@ fun Overlay(
     verticalWidth: Dp,
     locationState: State<OverlayLocation>,
     dragCallback: (Float, Float) -> OverlayDragResult,
+    dragStartCallback: () -> Pair<Float, Float>,
     offsetCallback: (Float, Float) -> Unit,
     onLayout: (IntSize) -> Unit,
     onTimerLayout: (IntSize) -> Unit
@@ -232,7 +233,13 @@ fun Overlay(
                 shape = backgroundShape,
             )
             .pointerInput(Unit) {
-                detectDragGestures(onDrag = { _, offset ->
+                detectDragGestures(onDragStart = {
+                    // A new gesture continues from where the overlay currently sits
+                    // instead of snapping back to the center on the first movement
+                    val (seedX, seedY) = dragStartCallback()
+                    horizontalDragOffset = seedX
+                    verticalDragOffset = seedY
+                }, onDrag = { _, offset ->
                     horizontalDragOffset += offset.x
                     verticalDragOffset += offset.y
                     // The accumulators are carried back raw so a sideways drag can keep

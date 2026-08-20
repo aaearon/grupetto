@@ -54,8 +54,8 @@ class OverlayDragLogicTest {
 
     @Test
     fun `horizontal overshoot past the slide clamp redocks bottom to left`() {
-        // Clamp is 200px, overshoot threshold is another 500px
-        val result = drag(OverlayLocation.Bottom, accumulatedX = -701f)
+        // Clamp is 200px, overshoot threshold is another 200px
+        val result = drag(OverlayLocation.Bottom, accumulatedX = -401f)
 
         assertEquals(OverlayLocation.Left, result.location)
         assertEquals(0f, result.accumulatedX, 0f)
@@ -65,7 +65,7 @@ class OverlayDragLogicTest {
 
     @Test
     fun `horizontal overshoot past the slide clamp redocks bottom to right`() {
-        val result = drag(OverlayLocation.Bottom, accumulatedX = 701f)
+        val result = drag(OverlayLocation.Bottom, accumulatedX = 401f)
 
         assertEquals(OverlayLocation.Right, result.location)
         assertEquals(0f, result.originX, 0f)
@@ -73,11 +73,11 @@ class OverlayDragLogicTest {
 
     @Test
     fun `horizontal overshoot below the threshold clamps the origin but keeps the raw accumulator`() {
-        val result = drag(OverlayLocation.Bottom, accumulatedX = -699f)
+        val result = drag(OverlayLocation.Bottom, accumulatedX = -399f)
 
         assertEquals(OverlayLocation.Bottom, result.location)
         // The accumulator must stay raw or the overshoot can never be reached
-        assertEquals(-699f, result.accumulatedX, 0f)
+        assertEquals(-399f, result.accumulatedX, 0f)
         assertEquals(-200f, result.originX, 0f)
     }
 
@@ -99,8 +99,8 @@ class OverlayDragLogicTest {
     }
 
     @Test
-    fun `horizontal drag past half the screen redocks left to right`() {
-        val result = drag(OverlayLocation.Left, accumulatedX = 501f)
+    fun `horizontal drag past the redock threshold flips left to right`() {
+        val result = drag(OverlayLocation.Left, accumulatedX = 201f)
 
         assertEquals(OverlayLocation.Right, result.location)
         assertEquals(0f, result.accumulatedX, 0f)
@@ -109,8 +109,8 @@ class OverlayDragLogicTest {
     }
 
     @Test
-    fun `horizontal drag past half the screen redocks right to left`() {
-        val result = drag(OverlayLocation.Right, accumulatedX = -501f)
+    fun `horizontal drag past the redock threshold flips right to left`() {
+        val result = drag(OverlayLocation.Right, accumulatedX = -201f)
 
         assertEquals(OverlayLocation.Left, result.location)
     }
@@ -157,5 +157,25 @@ class OverlayDragLogicTest {
         val result = drag(OverlayLocation.Bottom, accumulatedX = -900f, accumulatedY = 400f)
 
         assertEquals(OverlayLocation.Top, result.location)
+    }
+
+    @Test
+    fun `an accumulator seeded from the current origin keeps sliding from there`() {
+        // A new gesture seeded at -175 and nudged 30px further left
+        val result = drag(OverlayLocation.Bottom, accumulatedX = -205f)
+
+        assertEquals(OverlayLocation.Bottom, result.location)
+        assertEquals(-200f, result.originX, 0f)
+        assertEquals(-205f, result.accumulatedX, 0f)
+    }
+
+    @Test
+    fun `an accumulator seeded at the slide clamp can still overshoot into a redock`() {
+        // Seeded at the -200 clamp, then dragged another 250px: overshoot is 250 > 200
+        val result = drag(OverlayLocation.Bottom, accumulatedX = -450f)
+
+        assertEquals(OverlayLocation.Left, result.location)
+        assertEquals(0f, result.originX, 0f)
+        assertEquals(0f, result.accumulatedX, 0f)
     }
 }

@@ -1,6 +1,7 @@
 package com.spop.poverlay.overlay
 
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 
 /**
  * The four window dimensions the overlay service applies, plus whether the hidden
@@ -17,25 +18,30 @@ data class OverlayWindowGeometry(
 /**
  * Maps the measured content sizes onto window params for the current dock location.
  *
- * Docked to a side the overlay is full height and minimizing changes its *width*,
- * so the along-axis and cross-axis roles of every measurement swap. The touch target
- * always takes [touchExtent] along the axis the overlay slides off on.
+ * The cross-axis extent is always WRAP_CONTENT: the window has to fit the main content
+ * *and* the timer bar beside it, and only the main content reports a measured size.
+ * Pinning it to that measurement clips the timer bar off the screen. Minimizing does not
+ * shrink the window - the main content slides out under an offset, which does not change
+ * what the window measures - the hidden touch target covers the collapsed state instead.
+ *
+ * Docked to a side the overlay is full height, so the along-axis and cross-axis roles of
+ * every measurement swap. The touch target always takes [touchExtent] along the axis the
+ * overlay slides off on.
  *
  * Sizes are width to height. [MATCH_PARENT] is a compile-time constant, so this
  * function stays JVM-testable.
  */
 fun overlayWindowGeometry(
     location: OverlayLocation,
-    isMinimized: Boolean,
     expandedSize: Pair<Int, Int>,
     minimizedSize: Pair<Int, Int>,
     touchExtent: Int
 ): OverlayWindowGeometry {
-    val (expandedWidth, expandedHeight) = expandedSize
+    val (expandedWidth, _) = expandedSize
     val (minimizedWidth, minimizedHeight) = minimizedSize
     return if (location.isVertical) {
         OverlayWindowGeometry(
-            overlayWidth = if (isMinimized) minimizedWidth else expandedWidth,
+            overlayWidth = WRAP_CONTENT,
             overlayHeight = MATCH_PARENT,
             touchWidth = touchExtent,
             touchHeight = minimizedHeight,
@@ -44,7 +50,7 @@ fun overlayWindowGeometry(
     } else {
         OverlayWindowGeometry(
             overlayWidth = expandedWidth,
-            overlayHeight = if (isMinimized) minimizedHeight else expandedHeight,
+            overlayHeight = WRAP_CONTENT,
             touchWidth = minimizedWidth,
             touchHeight = touchExtent,
             touchTargetVisible = touchExtent > 0
