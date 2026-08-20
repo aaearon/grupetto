@@ -123,6 +123,13 @@ class OverlaySensorViewModel(
     // A treadmill reports incline; a bike does not, so only show the card for a Tread.
     val showInclineCard: StateFlow<Boolean> = visibleMetricFlow(MetricType.INCLINE)
 
+    // True while a treadmill is active. Drives the overlay's tread-specific spatial
+    // layout (incline left, chart center, speed right) mirroring the Tread's physical
+    // controls; the bike layout is used otherwise.
+    val isTread: StateFlow<Boolean> = deviceType.map { it == DeviceType.Tread }.stateIn(
+        viewModelScope, SharingStarted.Eagerly, sensorInterface.deviceType == DeviceType.Tread
+    )
+
     private fun visibleMetricFlow(metric: MetricType): StateFlow<Boolean> =
         visibleMetrics.map { metric in it }.stateIn(
             viewModelScope, SharingStarted.Eagerly, metric in visibleMetrics.value

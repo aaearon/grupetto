@@ -38,6 +38,7 @@ fun OverlayMinimizedContent(
     isMinimized: Boolean,
     showTimerWhenMinimized: Boolean,
     location: OverlayLocation,
+    isTread: Boolean,
     powerLabel: String,
     cadenceLabel: String,
     speedLabel: String,
@@ -183,21 +184,35 @@ fun OverlayMinimizedContent(
                     iconDrawable = R.drawable.ic_resistance
                 )
             }
-            Spacer(modifier = Modifier.width(4.dp))
-            OverlayTimerField(
-                modifier = Modifier.width(58.dp),
-                timerLabel = speedLabel,
-                iconDrawable = R.drawable.ic_speed
-            )
-            if (showInclineField) {
-                // Reuses ic_speed until a dedicated incline drawable is added,
-                // matching the main content's incline card.
+            // Reuses ic_speed for incline until a dedicated incline drawable is
+            // added, matching the main content's incline card.
+            val speedField = @Composable {
+                Spacer(modifier = Modifier.width(4.dp))
+                OverlayTimerField(
+                    modifier = Modifier.width(58.dp),
+                    timerLabel = speedLabel,
+                    iconDrawable = R.drawable.ic_speed
+                )
+            }
+            val inclineField = @Composable {
                 Spacer(modifier = Modifier.width(4.dp))
                 OverlayTimerField(
                     modifier = Modifier.width(58.dp),
                     timerLabel = inclineLabel,
                     iconDrawable = R.drawable.ic_speed
                 )
+            }
+            if (isTread) {
+                // Mirror the expanded HUD's left-to-right sense: incline before speed.
+                if (showInclineField) {
+                    inclineField()
+                }
+                speedField()
+            } else {
+                speedField()
+                if (showInclineField) {
+                    inclineField()
+                }
             }
             Spacer(modifier = Modifier.width(4.dp))
             OverlayTimerField(

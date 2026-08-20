@@ -68,6 +68,7 @@ fun Overlay(
     val showCadenceCard by sensorViewModel.showCadenceCard.collectAsState()
     val showResistanceCard by sensorViewModel.showResistanceCard.collectAsState()
     val showInclineCard by sensorViewModel.showInclineCard.collectAsState()
+    val isTread by sensorViewModel.isTread.collectAsState()
     val rpm by sensorViewModel.rpmValue.collectAsState(initial = SensorValuePlaceholderText)
     val resistance by sensorViewModel.resistanceValue.collectAsState(initial = SensorValuePlaceholderText)
     val speed by sensorViewModel.speedValue.collectAsState(initial = SensorValuePlaceholderText)
@@ -170,6 +171,7 @@ fun Overlay(
             timerPaused = isTimerPaused,
             showTimerWhenMinimized = showTimerWhenMinimized,
             location = location,
+            isTread = isTread,
             powerLabel = power,
             contentAlpha = timerAlpha,
             timerLabel = timerLabel,
@@ -227,6 +229,7 @@ fun Overlay(
                     .padding(horizontal = 9.dp)
                     .padding(bottom = 5.dp),
                 rowAlignment = rowAlignment,
+                isTread = isTread,
                 power = power,
                 rpm = rpm,
                 pauseChart = isCurrentlyAnimating,
