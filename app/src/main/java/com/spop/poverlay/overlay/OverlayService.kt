@@ -129,6 +129,9 @@ class OverlayService : LifecycleEnabledService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Timber.i("overlay service received intent")
+        syncBackgroundExecutionGuards()
+        // Read lazily so toggling "show overlay" while the service is alive takes effect
+        syncOverlayAttachment()
         when (intent?.action) {
             ActionMinimizeOverlay -> {
                 sensorViewModel?.let { viewModel ->
@@ -145,9 +148,6 @@ class OverlayService : LifecycleEnabledService() {
                 }
             }
         }
-        syncBackgroundExecutionGuards()
-        // Read lazily so toggling "show overlay" while the service is alive takes effect
-        syncOverlayAttachment()
         return START_STICKY
     }
 
