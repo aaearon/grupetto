@@ -12,6 +12,7 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
 
     enum class Preferences(val key: String) {
         ShowTimerWhenMinimized("showTimerWhenMinimized"),
+        ShowOverlay("showOverlay"),
         BleTxEnabled("bleTxEnabled"),
         DirConEnabled("dirConEnabled"),
         BleFtmsDeviceName("bleFtmsDeviceName"),
@@ -27,12 +28,14 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
     }
 
     private val mutableShowTimerWhenMinimized = MutableStateFlow(true)
+    private val mutableShowOverlay = MutableStateFlow(true)
     private val mutableBleTxEnabled = MutableStateFlow(true)
     private val mutableDirConEnabled = MutableStateFlow(true)
     private val mutableBleFtmsDeviceName = MutableStateFlow("Grupetto FTMS")
     private val mutableSerialNumber = MutableStateFlow("")
 
     val showTimerWhenMinimized = mutableShowTimerWhenMinimized
+    val showOverlay = mutableShowOverlay
     val bleTxEnabled = mutableBleTxEnabled
     val dirConEnabled = mutableDirConEnabled
     val bleFtmsDeviceName = mutableBleFtmsDeviceName
@@ -66,6 +69,13 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
         mutableShowTimerWhenMinimized.value = isShown
         sharedPreferences.edit {
             putBoolean(Preferences.ShowTimerWhenMinimized.key, isShown)
+        }
+    }
+
+    fun setShowOverlay(isShown: Boolean) {
+        mutableShowOverlay.value = isShown
+        sharedPreferences.edit {
+            putBoolean(Preferences.ShowOverlay.key, isShown)
         }
     }
 
@@ -107,6 +117,10 @@ class ConfigurationRepository(context: Context, lifecycleOwner: LifecycleOwner) 
         mutableShowTimerWhenMinimized.value =
             sharedPreferences
                 .getBoolean(Preferences.ShowTimerWhenMinimized.key, true)
+
+        mutableShowOverlay.value =
+            sharedPreferences
+                .getBoolean(Preferences.ShowOverlay.key, true)
 
         mutableBleTxEnabled.value =
             sharedPreferences
