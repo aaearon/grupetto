@@ -11,6 +11,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -26,13 +27,12 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.spop.poverlay.ConfigurationRepository
+import com.spop.poverlay.applyTransportSync
 import com.spop.poverlay.GrupettoApplication
+import com.spop.poverlay.decideServiceMode
 import com.spop.poverlay.MainActivity
 import com.spop.poverlay.R
 
@@ -95,6 +95,8 @@ class OverlayService : LifecycleEnabledService() {
     private var windowManager: WindowManager? = null
     private var sensorViewModel: OverlaySensorViewModel? = null
     private var minimizedStateBeforeConfiguration: Boolean? = null
+    private val overlayJobs = mutableListOf<Job>()
+    private var overlayTeardown: (() -> Unit)? = null
     private val bleServer by lazy { (application as GrupettoApplication).bleServer }
 
     override fun onCreate() {
@@ -118,7 +120,7 @@ class OverlayService : LifecycleEnabledService() {
         } else {
             startForeground(OverlayServiceId, notification)
         }
-        buildDialog()
+        syncOverlayAttachment()
     }
 
     override fun onBind(intent: Intent?): IBinder? {
@@ -128,6 +130,9 @@ class OverlayService : LifecycleEnabledService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Timber.i("overlay service received intent")
+        syncBackgroundExecutionGuards()
+        // Read lazily so toggling "show overlay" while the service is alive takes effect
+        syncOverlayAttachment()
         when (intent?.action) {
             ActionMinimizeOverlay -> {
                 sensorViewModel?.let { viewModel ->
@@ -144,17 +149,53 @@ class OverlayService : LifecycleEnabledService() {
                 }
             }
         }
-        syncBackgroundExecutionGuards()
         return START_STICKY
     }
 
     override fun onDestroy() {
         mutableIsRunning.value = false
-        removeOverlayViews()
+        detachOverlay()
         releaseWakeLock()
-        sensorViewModel = null
         super.onDestroy()
     }
+
+    /**
+     * Attaches or detaches the overlay window to match the current preference. Never touches the
+     * foreground notification, the wake lock, BLE or DIRCON: BLE-only mode is a live service with
+     * no window, not a stopped one.
+     */
+    private fun syncOverlayAttachment() {
+        val shouldAttach = decideServiceMode(
+            showOverlay = isShowOverlayEnabled(),
+            bleTxEnabled = isBleTxEnabled(),
+            dirConEnabled = isDirConEnabled(),
+            canDrawOverlays = canDrawOverlays(),
+            isServiceRunning = true
+        ).attachOverlayWindow
+
+        val isAttached = overlayView != null
+        if (shouldAttach && !isAttached) {
+            Timber.i("attaching overlay window")
+            buildDialog()
+        } else if (!shouldAttach && isAttached) {
+            Timber.i("detaching overlay window; running transports only")
+            detachOverlay()
+        }
+    }
+
+    private fun detachOverlay() {
+        overlayJobs.forEach { it.cancel() }
+        overlayJobs.clear()
+        overlayTeardown?.invoke()
+        overlayTeardown = null
+        (overlayView as? ComposeView)?.disposeComposition()
+        removeOverlayViews()
+        sensorViewModel = null
+        minimizedStateBeforeConfiguration = null
+    }
+
+    private fun canDrawOverlays(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
 
     private fun buildDialog() {
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -178,16 +219,15 @@ class OverlayService : LifecycleEnabledService() {
             SensorSelection.BikeV1 -> PelotonBikeSensorInterfaceV1New(this)
             SensorSelection.Dummy -> EmulatorSensorInterface
         }
-        // Stop the sensor interface when the service is destroyed to release bindings.
-        lifecycle.addObserver(LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_DESTROY) {
-                when (sensorInterface) {
-                    is PelotonTreadSensorInterface -> sensorInterface.stop()
-                    is PelotonBikeSensorInterfaceV1New -> sensorInterface.stop()
-                    is PelotonBikePlusSensorInterface -> sensorInterface.stop()
-                }
+        // Stop the sensor interface when the overlay is detached, to release bindings.
+        val stopSensorInterface = {
+            when (sensorInterface) {
+                is PelotonTreadSensorInterface -> sensorInterface.stop()
+                is PelotonBikeSensorInterfaceV1New -> sensorInterface.stop()
+                is PelotonBikePlusSensorInterface -> sensorInterface.stop()
+                else -> Unit
             }
-        })
+        }
 
         val timerViewModel = OverlayTimerViewModel(
             application,
@@ -211,15 +251,14 @@ class OverlayService : LifecycleEnabledService() {
         val watchdogThreshold = 30.minutes
         val watchdog = CadenceWatchdog(sensorInterface, this.coroutineContext, watchdogThreshold)
         watchdog.start()
-        
-        lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onDestroy(owner: LifecycleOwner) {
-                watchdog.stop()
-            }
-        })
-        
+
+        overlayTeardown = {
+            watchdog.stop()
+            stopSensorInterface()
+        }
+
         // Handle watchdog restart trigger
-        lifecycleScope.launch {
+        overlayJobs += lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 watchdog.restartTriggered.collect {
                     Timber.w(
@@ -294,7 +333,7 @@ class OverlayService : LifecycleEnabledService() {
         //touchTarget.clipChildren = false
         //touchTarget.clipToPadding = false
         //Subscribe to Dialog view model and update views
-        lifecycleScope.launch {
+        overlayJobs += lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 combine(
                     dialogViewModel.dialogOrigin,
@@ -456,18 +495,23 @@ class OverlayService : LifecycleEnabledService() {
         val bleEnabled = isBleTxEnabled()
         val dirConEnabled = isDirConEnabled()
 
-        bleServer.stop()
-        bleServer.setDirConTransportEnabled(dirConEnabled)
-
-        if (bleEnabled && hasBleRuntimePermissions()) {
-            bleServer.start()
-        }
+        applyTransportSync(
+            transports = bleServer,
+            bleTxEnabled = bleEnabled,
+            hasBluetoothPermissions = hasBleRuntimePermissions(),
+            dirConEnabled = dirConEnabled
+        )
 
         if ((bleEnabled && hasBleRuntimePermissions()) || dirConEnabled) {
             acquireWakeLock()
         } else {
             releaseWakeLock()
         }
+    }
+
+    private fun isShowOverlayEnabled(): Boolean {
+        val prefs = getSharedPreferences(ConfigurationRepository.SharedPrefsName, MODE_PRIVATE)
+        return prefs.getBoolean(ConfigurationRepository.Preferences.ShowOverlay.key, true)
     }
 
     private fun isBleTxEnabled(): Boolean {

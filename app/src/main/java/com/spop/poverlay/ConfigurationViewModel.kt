@@ -34,7 +34,7 @@ class ConfigurationViewModel(
     val requestQuit = MutableLiveData<Unit>()
     val requestBluetoothPermissions = MutableLiveData<Array<String>>()
     val requestIgnoreBatteryOptimizations = MutableLiveData<Unit>()
-    val showPermissionInfo = mutableStateOf(false)
+    val canDrawOverlays = mutableStateOf(true)
     val infoPopup = MutableLiveData<String>()
 
     val hrConnectedDevice = HeartRateManager.connectedDevice
@@ -48,6 +48,9 @@ class ConfigurationViewModel(
 
     val showTimerWhenMinimized
         get() = configurationRepository.showTimerWhenMinimized
+
+    val showOverlay
+        get() = configurationRepository.showOverlay
 
     val bleTxEnabled
         get() = configurationRepository.bleTxEnabled
@@ -68,15 +71,38 @@ class ConfigurationViewModel(
     }
 
     private fun updatePermissionState() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            showPermissionInfo.value = !Settings.canDrawOverlays(getApplication())
+        canDrawOverlays.value = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(getApplication())
         } else {
-            showPermissionInfo.value = false
+            true
         }
     }
 
     fun onShowTimerWhenMinimizedClicked(isChecked: Boolean) {
         configurationRepository.setShowTimerWhenMinimized(isChecked)
+    }
+
+    fun onShowOverlayClicked(isChecked: Boolean) {
+        configurationRepository.setShowOverlay(isChecked)
+        // Applied immediately, the same way transports are
+        applyOverlayVisibility()
+        if (isChecked && !canDrawOverlays.value) {
+            requestOverlayPermission.value = Unit
+        }
+    }
+
+    private fun applyOverlayVisibility() {
+        if (!isOverlayRunning.value) {
+            return
+        }
+        // The configuration screen is in the foreground, so the overlay stays minimized until
+        // onAppStopped restores it; the service re-reads the preference either way.
+        ContextCompat.startForegroundService(
+            getApplication(),
+            Intent(getApplication(), OverlayService::class.java).apply {
+                action = OverlayService.ActionMinimizeOverlay
+            }
+        )
     }
 
     fun onBleTxEnabledClicked(isChecked: Boolean) {
@@ -114,12 +140,12 @@ class ConfigurationViewModel(
     }
 
     private fun syncOutboundTransports() {
-        bleServer.stop()
-        bleServer.setDirConTransportEnabled(dirConEnabled.value)
-
-        if (bleTxEnabled.value && hasBluetoothPermissions()) {
-            bleServer.start()
-        }
+        applyTransportSync(
+            transports = bleServer,
+            bleTxEnabled = bleTxEnabled.value,
+            hasBluetoothPermissions = hasBluetoothPermissions(),
+            dirConEnabled = dirConEnabled.value
+        )
     }
 
     private fun getRequiredBluetoothPermissions(): Array<String> {
@@ -178,7 +204,20 @@ class ConfigurationViewModel(
                 bluetoothAdvertisePermission && bluetoothConnectPermission && bluetoothScanPermission
     }
 
+    private fun serviceModeDecision() = decideServiceMode(
+        showOverlay = showOverlay.value,
+        bleTxEnabled = bleTxEnabled.value,
+        dirConEnabled = dirConEnabled.value,
+        canDrawOverlays = canDrawOverlays.value,
+        isServiceRunning = isOverlayRunning.value
+    )
+
     fun onStartServiceClicked() {
+        val decision = serviceModeDecision()
+        if (!decision.mayStartService) {
+            infoPopup.postValue(NothingToRunMessage)
+            return
+        }
         Timber.i("Starting service")
         ContextCompat.startForegroundService(
             getApplication(),
@@ -312,7 +351,8 @@ class ConfigurationViewModel(
         val prompt = if (wasGranted) {
             "Permission granted, click 'Start Overlay' to get started"
         } else {
-            "Without this permission the app cannot function"
+            "Without this permission Grupetto can still broadcast over BLE and DIRCON, " +
+                    "but cannot draw the overlay"
         }
         infoPopup.postValue(prompt)
     }

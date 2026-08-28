@@ -65,7 +65,12 @@ After following those steps, the APK for grupetto can be found on the Releases t
 # Usage
 
 - When first run, grupetto will ask for permission to draw over other apps. This permission is
-  required for the app to function.
+  required for the on-screen overlay. The configuration screen is reachable without it, so BLE and
+  DIRCON broadcasting can be set up and started even if the permission is refused.
+
+- The "Show overlay on screen" switch on the main screen turns the overlay off, leaving grupetto
+  running as a BLE/DIRCON bridge only. The setting is remembered, and toggling it takes effect on a
+  running service.
 
 <p align="center">
 <img width="639" alt="Permissions Screenshot" src="https://user-images.githubusercontent.com/17497673/192136649-ebbda631-c5d6-4233-a8d0-b7573a8d8250.png">

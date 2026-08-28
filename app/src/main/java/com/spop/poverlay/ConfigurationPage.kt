@@ -39,7 +39,7 @@ private data class UiScale(
 
 @Composable
 fun ConfigurationPage(viewModel: ConfigurationViewModel) {
-    val showPermissionInfo by remember { viewModel.showPermissionInfo }
+    val canDrawOverlays by remember { viewModel.canDrawOverlays }
     val latestRelease by remember { viewModel.latestRelease }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -53,63 +53,69 @@ fun ConfigurationPage(viewModel: ConfigurationViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
         ) {
-            if (showPermissionInfo) {
-                PermissionPage(
-                        onClickedGrantPermission = viewModel::onGrantPermissionClicked,
-                        uiScale = uiScale
-                )
-            } else {
-                val timerShownWhenMinimized by
-                        viewModel.showTimerWhenMinimized.collectAsStateWithLifecycle(
-                                initialValue = true
-                        )
-                val bleTxEnabled by
-                        viewModel.bleTxEnabled.collectAsStateWithLifecycle(initialValue = false)
-                val dirConEnabled by
-                        viewModel.dirConEnabled.collectAsStateWithLifecycle(initialValue = true)
-                val bleFtmsDeviceName by
-                        viewModel.bleFtmsDeviceName.collectAsStateWithLifecycle(
-                                initialValue = "Grupetto FTMS"
-                        )
-                val hrConnectedDevice by
-                        viewModel.hrConnectedDevice.collectAsStateWithLifecycle(initialValue = null)
-                val hrDiscoveredDevices by
-                        viewModel.hrDiscoveredDevices.collectAsStateWithLifecycle(initialValue = emptyList())
-                val hrSavedDevices by
-                        viewModel.hrSavedDevices.collectAsStateWithLifecycle(initialValue = emptyList())
-                val hrIsScanning by
-                        viewModel.hrIsScanning.collectAsStateWithLifecycle(initialValue = false)
-                val hrMatchByName by
-                        viewModel.hrMatchByName.collectAsStateWithLifecycle(initialValue = false)
-                val isOverlayRunning by
-                        viewModel.isOverlayRunning.collectAsStateWithLifecycle(initialValue = false)
-                StartServicePage(
-                        timerShownWhenMinimized,
-                        viewModel::onShowTimerWhenMinimizedClicked,
-                        bleTxEnabled,
-                        viewModel::onBleTxEnabledClicked,
-                        dirConEnabled,
-                        viewModel::onDirConEnabledClicked,
-                        bleFtmsDeviceName,
-                        hrConnectedDevice,
-                        hrDiscoveredDevices,
-                        hrSavedDevices,
-                        hrIsScanning,
-                        hrMatchByName,
-                        viewModel::startHeartRateDiscovery,
-                        viewModel::stopHeartRateDiscovery,
-                        viewModel::connectHeartRateDevice,
-                        viewModel::disconnectHeartRateDevice,
-                        viewModel::forgetHeartRateDevice,
-                        viewModel::setHrMatchByName,
-                        isOverlayRunning,
-                        uiScale,
-                        viewModel::onStartServiceClicked,
-                        viewModel::onQuitClicked,
-                        viewModel::onClickedRelease,
-                        latestRelease
-                )
-            }
+            val timerShownWhenMinimized by
+                    viewModel.showTimerWhenMinimized.collectAsStateWithLifecycle(
+                            initialValue = true
+                    )
+            val showOverlay by
+                    viewModel.showOverlay.collectAsStateWithLifecycle(initialValue = true)
+            val bleTxEnabled by
+                    viewModel.bleTxEnabled.collectAsStateWithLifecycle(initialValue = false)
+            val dirConEnabled by
+                    viewModel.dirConEnabled.collectAsStateWithLifecycle(initialValue = true)
+            val bleFtmsDeviceName by
+                    viewModel.bleFtmsDeviceName.collectAsStateWithLifecycle(
+                            initialValue = "Grupetto FTMS"
+                    )
+            val hrConnectedDevice by
+                    viewModel.hrConnectedDevice.collectAsStateWithLifecycle(initialValue = null)
+            val hrDiscoveredDevices by
+                    viewModel.hrDiscoveredDevices.collectAsStateWithLifecycle(initialValue = emptyList())
+            val hrSavedDevices by
+                    viewModel.hrSavedDevices.collectAsStateWithLifecycle(initialValue = emptyList())
+            val hrIsScanning by
+                    viewModel.hrIsScanning.collectAsStateWithLifecycle(initialValue = false)
+            val hrMatchByName by
+                    viewModel.hrMatchByName.collectAsStateWithLifecycle(initialValue = false)
+            val isOverlayRunning by
+                    viewModel.isOverlayRunning.collectAsStateWithLifecycle(initialValue = false)
+            // The page is a thin adapter over the pure policy; no branching of its own
+            val decision = decideServiceMode(
+                    showOverlay = showOverlay,
+                    bleTxEnabled = bleTxEnabled,
+                    dirConEnabled = dirConEnabled,
+                    canDrawOverlays = canDrawOverlays,
+                    isServiceRunning = isOverlayRunning
+            )
+            StartServicePage(
+                    timerShownWhenMinimized,
+                    viewModel::onShowTimerWhenMinimizedClicked,
+                    showOverlay,
+                    viewModel::onShowOverlayClicked,
+                    bleTxEnabled,
+                    viewModel::onBleTxEnabledClicked,
+                    dirConEnabled,
+                    viewModel::onDirConEnabledClicked,
+                    bleFtmsDeviceName,
+                    hrConnectedDevice,
+                    hrDiscoveredDevices,
+                    hrSavedDevices,
+                    hrIsScanning,
+                    hrMatchByName,
+                    viewModel::startHeartRateDiscovery,
+                    viewModel::stopHeartRateDiscovery,
+                    viewModel::connectHeartRateDevice,
+                    viewModel::disconnectHeartRateDevice,
+                    viewModel::forgetHeartRateDevice,
+                    viewModel::setHrMatchByName,
+                    decision,
+                    uiScale,
+                    viewModel::onStartServiceClicked,
+                    viewModel::onGrantPermissionClicked,
+                    viewModel::onQuitClicked,
+                    viewModel::onClickedRelease,
+                    latestRelease
+            )
         }
     }
 }
@@ -118,6 +124,8 @@ fun ConfigurationPage(viewModel: ConfigurationViewModel) {
 private fun StartServicePage(
         timerShownWhenMinimized: Boolean,
         onTimerShownWhenMinimizedToggled: (Boolean) -> Unit,
+        showOverlay: Boolean,
+        onShowOverlayToggled: (Boolean) -> Unit,
         bleTxEnabled: Boolean,
         onBleTxEnabledToggled: (Boolean) -> Unit,
         dirConEnabled: Boolean,
@@ -134,9 +142,10 @@ private fun StartServicePage(
         onDisconnectHeartRateDevice: () -> Unit,
         onForgetHeartRateDevice: (String) -> Unit,
         onSetHrMatchByName: (Boolean) -> Unit,
-        isOverlayRunning: Boolean,
+        decision: ServiceModeDecision,
         uiScale: UiScale,
         onClickedStartOverlay: () -> Unit,
+        onClickedGrantPermission: () -> Unit,
         onClickedQuitApp: () -> Unit,
         onClickedRelease: (Release) -> Unit,
         latestRelease: Release?
@@ -181,17 +190,50 @@ private fun StartServicePage(
             Column(modifier = Modifier.padding(cardPadding)) {
                 Text("Overlay", fontSize = uiScale.sp(18f), fontWeight = FontWeight.Bold, color = headingColor)
                 Spacer(modifier = Modifier.height(uiScale.dp(8f)))
+                Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Show overlay on screen", fontSize = uiScale.sp(16f), color = bodyColor)
+                        Text(
+                                text = "Turn off to run Grupetto as a BLE/DIRCON bridge only.",
+                                fontSize = uiScale.sp(13f),
+                                color = bodyColor
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(uiScale.dp(8f)))
+                    Switch(
+                            checked = showOverlay,
+                            onCheckedChange = onShowOverlayToggled,
+                            colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color(0xFF22C55E),
+                                    checkedTrackColor = Color(0xFF22C55E)
+                            )
+                    )
+                }
+                if (decision.showOverlayPermissionPrompt) {
+                    Spacer(modifier = Modifier.height(uiScale.dp(8f)))
+                    OverlayPermissionPrompt(onClickedGrantPermission, uiScale)
+                }
+                Spacer(modifier = Modifier.height(uiScale.dp(8f)))
                 Button(
                         onClick = onClickedStartOverlay,
+                        enabled = decision.mayStartService,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(backgroundColor = accentColor)
                 ) {
                     Text(
-                            text = if (isOverlayRunning) "Restart Overlay" else "Start Overlay",
+                            text = decision.startButtonLabel,
                             fontSize = uiScale.sp(18f),
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                     )
+                }
+                decision.blockedReason?.let { reason ->
+                    Spacer(modifier = Modifier.height(uiScale.dp(6f)))
+                    Text(text = reason, fontSize = uiScale.sp(13f), color = ErrorColor)
                 }
             }
         }
@@ -416,20 +458,22 @@ private fun StartServicePage(
 }
 
 @Composable
-private fun PermissionPage(onClickedGrantPermission: () -> Unit, uiScale: UiScale) {
-    Text(
-            text = "Grupetto Needs Permission To Draw Over Other Apps",
-            fontSize = uiScale.sp(40f),
-            fontStyle = FontStyle.Italic,
-            fontWeight = FontWeight.Bold
-    )
-    Text(
-            text = "It uses this permission to draw an overlay with your bike's sensor data",
-            fontSize = uiScale.sp(20f),
-            fontWeight = FontWeight.Normal
-    )
-    Spacer(modifier = Modifier.height(uiScale.dp(10f)))
-    Button(onClick = onClickedGrantPermission) { Text(text = "Grant Permission") }
+private fun OverlayPermissionPrompt(onClickedGrantPermission: () -> Unit, uiScale: UiScale) {
+    Column {
+        Text(
+                text = "Grupetto Needs Permission To Draw Over Other Apps",
+                fontSize = uiScale.sp(18f),
+                fontStyle = FontStyle.Italic,
+                fontWeight = FontWeight.Bold
+        )
+        Text(
+                text = "It uses this permission to draw an overlay with your bike's sensor data",
+                fontSize = uiScale.sp(14f),
+                fontWeight = FontWeight.Normal
+        )
+        Spacer(modifier = Modifier.height(uiScale.dp(8f)))
+        Button(onClick = onClickedGrantPermission) { Text(text = "Grant Permission") }
+    }
 }
 
 @Composable
