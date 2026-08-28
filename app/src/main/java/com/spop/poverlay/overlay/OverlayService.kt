@@ -30,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.spop.poverlay.ConfigurationRepository
+import com.spop.poverlay.applyTransportSync
 import com.spop.poverlay.GrupettoApplication
 import com.spop.poverlay.decideServiceMode
 import com.spop.poverlay.MainActivity
@@ -494,12 +495,12 @@ class OverlayService : LifecycleEnabledService() {
         val bleEnabled = isBleTxEnabled()
         val dirConEnabled = isDirConEnabled()
 
-        bleServer.stop()
-        bleServer.setDirConTransportEnabled(dirConEnabled)
-
-        if (bleEnabled && hasBleRuntimePermissions()) {
-            bleServer.start()
-        }
+        applyTransportSync(
+            transports = bleServer,
+            bleTxEnabled = bleEnabled,
+            hasBluetoothPermissions = hasBleRuntimePermissions(),
+            dirConEnabled = dirConEnabled
+        )
 
         if ((bleEnabled && hasBleRuntimePermissions()) || dirConEnabled) {
             acquireWakeLock()

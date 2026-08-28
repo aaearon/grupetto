@@ -140,12 +140,12 @@ class ConfigurationViewModel(
     }
 
     private fun syncOutboundTransports() {
-        bleServer.stop()
-        bleServer.setDirConTransportEnabled(dirConEnabled.value)
-
-        if (bleTxEnabled.value && hasBluetoothPermissions()) {
-            bleServer.start()
-        }
+        applyTransportSync(
+            transports = bleServer,
+            bleTxEnabled = bleTxEnabled.value,
+            hasBluetoothPermissions = hasBluetoothPermissions(),
+            dirConEnabled = dirConEnabled.value
+        )
     }
 
     private fun getRequiredBluetoothPermissions(): Array<String> {

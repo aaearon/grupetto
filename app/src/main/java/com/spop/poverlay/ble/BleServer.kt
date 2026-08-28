@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import com.spop.poverlay.OutboundTransports
 import com.spop.poverlay.dircon.DirConGattBridge
 import com.spop.poverlay.dircon.DirConServer
 import com.spop.poverlay.dircon.toDirConService
@@ -98,7 +99,7 @@ class BleServer(
         private val bluetoothManager: BluetoothManager,
         private val sensorInterface: SensorInterface,
         private val timeProvider: TimeProvider = SystemTimeProvider()
-) : BluetoothGattServerCallback(), CoroutineScope {
+) : BluetoothGattServerCallback(), CoroutineScope, OutboundTransports {
 
     override val coroutineContext = SupervisorJob() + Dispatchers.IO
     private var sensorDataJob: Job? = null
@@ -305,7 +306,7 @@ class BleServer(
         }
 
     @Synchronized
-    fun start() {
+    override fun start() {
         if (isServerStarted) {
             Timber.d("BLE server already started, ignoring duplicate start()")
             return
@@ -414,7 +415,7 @@ class BleServer(
     }
 
     @Synchronized
-    fun stop() {
+    override fun stop() {
         isServerStarted = false
         isDirConOnlyStarted = false
         gattServerGeneration++
@@ -495,7 +496,17 @@ class BleServer(
         }
     }
 
-    fun setDirConTransportEnabled(enabled: Boolean) {
+    /**
+     * What the transports are actually doing right now, so that a sync can compare desired state
+     * against running state instead of bouncing everything. See [OutboundTransports].
+     */
+    override val isBleServerRunning: Boolean
+        get() = isServerStarted
+
+    override val isDirConServerRunning: Boolean
+        get() = dirConServer != null
+
+    override fun setDirConTransportEnabled(enabled: Boolean) {
         dirConTransportEnabled = enabled
         if (enabled) {
             if (isServerStarted) {
