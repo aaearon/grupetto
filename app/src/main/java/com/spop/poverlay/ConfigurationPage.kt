@@ -79,12 +79,20 @@ fun ConfigurationPage(viewModel: ConfigurationViewModel) {
                     viewModel.hrMatchByName.collectAsStateWithLifecycle(initialValue = false)
             val isOverlayRunning by
                     viewModel.isOverlayRunning.collectAsStateWithLifecycle(initialValue = false)
+            val bleTransportState by
+                    viewModel.bleTransportState.collectAsStateWithLifecycle(
+                            initialValue = BleTransportState.Stopped
+                    )
+            val dirConRunning by
+                    viewModel.dirConRunning.collectAsStateWithLifecycle(initialValue = false)
             // The page is a thin adapter over the pure policy; no branching of its own
             val decision = decideServiceMode(
                     showOverlay = showOverlay,
                     bleTxEnabled = bleTxEnabled,
                     dirConEnabled = dirConEnabled,
                     canDrawOverlays = canDrawOverlays,
+                    bleTransportState = bleTransportState,
+                    dirConRunning = dirConRunning,
                     isServiceRunning = isOverlayRunning
             )
             StartServicePage(
@@ -321,6 +329,13 @@ private fun StartServicePage(
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                         )
+                        decision.transportStatus?.let { status ->
+                            Text(
+                                    text = status,
+                                    fontSize = uiScale.sp(13f),
+                                    color = bodyColor
+                            )
+                        }
                     } else {
                         Text(
                                 text = "Enable BLE or DIRCON to broadcast bike data to apps like Zwift or TrainerRoad.",
