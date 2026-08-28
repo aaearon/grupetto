@@ -524,10 +524,7 @@ class BleServer(
      *
      * Deliberately reads [isServerStarted], not [transportState]: the GATT registration can be
      * open with advertising failed ([BleTransportState.Failed] while [isServerStarted] stays
-     * true, e.g. [AdvertiseCallback.onStartFailure]), which is still "running" for sync purposes -
-     * `stop()`/`start()` would otherwise be called needlessly. [transportState] is updated at the
-     * same call sites as [isServerStarted] everywhere that failure ambiguity doesn't apply, so the
-     * two never disagree about whether BLE is actually off.
+     * 
      */
     override val isBleServerRunning: Boolean
         get() = isServerStarted
@@ -691,26 +688,51 @@ class BleServer(
         }
     }
     
+    /**
+     * [transportState] has to be written here as well as in [start] and [advertisingCallback]:
+     * the radio can be switched off underneath a running server, and a status line still
+     * reading "BLE transmission is active" with Bluetooth off is worse than no status line.
+     * Nothing here touches [isServerStarted] - the GATT registration survives the adapter
+     * bounce, and [isBleServerRunning] must keep reporting that, or `planTransportSync`
+     * restarts the transports and drops the DIRCON clients.
+     */
     private fun handleBluetoothStateChange(state: Int) {
         when (state) {
             BluetoothAdapter.STATE_OFF -> {
                 Timber.w("Bluetooth turned off, stopping advertising")
                 isAdvertising = false
                 // Don't call stopAdvertising() as Bluetooth is already off
+                reportAdapterUnavailable()
             }
             BluetoothAdapter.STATE_ON -> {
                 Timber.i("Bluetooth turned on, attempting to restart advertising")
                 if (isServerStarted) {
+                    // restartGattAndAdvertising() reports Starting and then the outcome.
+                    // Advertising is only ever claimed by advertisingCallback.onStartSuccess.
                     restartGattAndAdvertising("Bluetooth turned on")
                 }
             }
             BluetoothAdapter.STATE_TURNING_OFF -> {
                 Timber.d("Bluetooth turning off")
                 isAdvertising = false
+                // The radio is already on its way out; it is not carrying advertisements.
+                reportAdapterUnavailable()
             }
             BluetoothAdapter.STATE_TURNING_ON -> {
                 Timber.d("Bluetooth turning on")
+                // Nothing is restarted until STATE_ON, so this is not yet a recovery.
+                reportAdapterUnavailable()
             }
+        }
+    }
+
+    /**
+     * Only meaningful while the server is running: a stopped server reports [Stopped][
+     * BleTransportState.Stopped] whatever the radio is doing.
+     */
+    private fun reportAdapterUnavailable() {
+        if (isServerStarted) {
+            mutableTransportState.value = BleTransportState.AdapterUnavailable
         }
     }
     
@@ -748,12 +770,14 @@ class BleServer(
         
         if (bluetoothAdapter == null) {
             Timber.w("Watchdog: Bluetooth adapter is null")
+            reportAdapterUnavailable()
             return
         }
         
         if (!bluetoothAdapter.isEnabled) {
             Timber.d("Watchdog: Bluetooth is disabled; skipping auto-enable to avoid interfering with other apps")
             isAdvertising = false
+            reportAdapterUnavailable()
             return
         }
         
@@ -803,7 +827,9 @@ class BleServer(
         }
 
         Timber.i("Restarting GATT and advertising: $reason")
-        
+        // The restart is asynchronous from here; advertisingCallback settles it.
+        mutableTransportState.value = BleTransportState.Starting
+
         try {
             // Stop current advertising
             stopAdvertising()
@@ -821,12 +847,14 @@ class BleServer(
             val bluetoothAdapter = bluetoothManager.adapter
             if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled) {
                 Timber.e("Cannot restart: Bluetooth not available")
+                mutableTransportState.value = BleTransportState.AdapterUnavailable
                 return
             }
             
             advertiser = bluetoothAdapter.bluetoothLeAdvertiser
             if (advertiser == null) {
                 Timber.e("Cannot restart: Failed to get advertiser")
+                mutableTransportState.value = BleTransportState.AdvertiserUnavailable
                 return
             }
             
@@ -837,6 +865,7 @@ class BleServer(
             )
             if (replacement == null) {
                 Timber.e("Cannot restart: Failed to open GATT server")
+                mutableTransportState.value = BleTransportState.Failed
                 return
             }
             gattServer = replacement
@@ -850,8 +879,10 @@ class BleServer(
             
         } catch (e: SecurityException) {
             Timber.e(e, "Missing bluetooth permissions during restart")
+            mutableTransportState.value = BleTransportState.PermissionDenied
         } catch (e: Exception) {
             Timber.e(e, "Error during GATT and advertising restart")
+            mutableTransportState.value = BleTransportState.Failed
         }
     }
 
