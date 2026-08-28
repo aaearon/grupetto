@@ -169,8 +169,6 @@ class OverlayService : LifecycleEnabledService() {
             bleTxEnabled = isBleTxEnabled(),
             dirConEnabled = isDirConEnabled(),
             canDrawOverlays = canDrawOverlays(),
-            bleTransportState = bleServer.transportState.value,
-            dirConRunning = bleServer.dirConRunning.value,
             isServiceRunning = true
         ).attachOverlayWindow
 

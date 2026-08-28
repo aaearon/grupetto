@@ -79,20 +79,12 @@ fun ConfigurationPage(viewModel: ConfigurationViewModel) {
                     viewModel.hrMatchByName.collectAsStateWithLifecycle(initialValue = false)
             val isOverlayRunning by
                     viewModel.isOverlayRunning.collectAsStateWithLifecycle(initialValue = false)
-            val bleTransportState by
-                    viewModel.bleTransportState.collectAsStateWithLifecycle(
-                            initialValue = BleTransportState.Stopped
-                    )
-            val dirConRunning by
-                    viewModel.dirConRunning.collectAsStateWithLifecycle(initialValue = false)
             // The page is a thin adapter over the pure policy; no branching of its own
             val decision = decideServiceMode(
                     showOverlay = showOverlay,
                     bleTxEnabled = bleTxEnabled,
                     dirConEnabled = dirConEnabled,
                     canDrawOverlays = canDrawOverlays,
-                    bleTransportState = bleTransportState,
-                    dirConRunning = dirConRunning,
                     isServiceRunning = isOverlayRunning
             )
             StartServicePage(
@@ -329,13 +321,6 @@ private fun StartServicePage(
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                         )
-                        decision.transportStatus?.let { status ->
-                            Text(
-                                    text = status,
-                                    fontSize = uiScale.sp(13f),
-                                    color = bodyColor
-                            )
-                        }
                     } else {
                         Text(
                                 text = "Enable BLE or DIRCON to broadcast bike data to apps like Zwift or TrainerRoad.",
@@ -474,28 +459,20 @@ private fun StartServicePage(
 
 @Composable
 private fun OverlayPermissionPrompt(onClickedGrantPermission: () -> Unit, uiScale: UiScale) {
-    Card(
-            modifier = Modifier.fillMaxWidth(),
-            backgroundColor = Color(0xFF3A2A00),
-            elevation = uiScale.dp(0f)
-    ) {
-        Column(modifier = Modifier.padding(uiScale.dp(10f))) {
-            Text(
-                    text = "Grupetto needs permission to draw over other apps",
-                    fontSize = uiScale.sp(18f),
-                    fontStyle = FontStyle.Italic,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFF2F2F2)
-            )
-            Text(
-                    text = "It uses this permission to draw an overlay with your bike's sensor data. " +
-                            "BLE and DIRCON work without it.",
-                    fontSize = uiScale.sp(14f),
-                    color = Color(0xFFD0D0D0)
-            )
-            Spacer(modifier = Modifier.height(uiScale.dp(8f)))
-            Button(onClick = onClickedGrantPermission) { Text(text = "Grant Permission") }
-        }
+    Column {
+        Text(
+                text = "Grupetto Needs Permission To Draw Over Other Apps",
+                fontSize = uiScale.sp(18f),
+                fontStyle = FontStyle.Italic,
+                fontWeight = FontWeight.Bold
+        )
+        Text(
+                text = "It uses this permission to draw an overlay with your bike's sensor data",
+                fontSize = uiScale.sp(14f),
+                fontWeight = FontWeight.Normal
+        )
+        Spacer(modifier = Modifier.height(uiScale.dp(8f)))
+        Button(onClick = onClickedGrantPermission) { Text(text = "Grant Permission") }
     }
 }
 

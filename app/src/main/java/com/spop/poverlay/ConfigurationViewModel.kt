@@ -64,9 +64,6 @@ class ConfigurationViewModel(
     private val bleServer = (application as GrupettoApplication).bleServer
     private var batteryOptimizationPromptShownThisSession = false
 
-    val bleTransportState = bleServer.transportState
-    val dirConRunning = bleServer.dirConRunning
-
     init {
         updatePermissionState()
         HeartRateManager.start(getApplication())
@@ -212,8 +209,6 @@ class ConfigurationViewModel(
         bleTxEnabled = bleTxEnabled.value,
         dirConEnabled = dirConEnabled.value,
         canDrawOverlays = canDrawOverlays.value,
-        bleTransportState = bleTransportState.value,
-        dirConRunning = dirConRunning.value,
         isServiceRunning = isOverlayRunning.value
     )
 
