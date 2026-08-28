@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import com.spop.poverlay.BleTransportState
 import com.spop.poverlay.OutboundTransports
 import com.spop.poverlay.dircon.DirConGattBridge
 import com.spop.poverlay.dircon.DirConServer
@@ -22,6 +23,9 @@ import com.spop.poverlay.sensor.interfaces.SensorInterface
 import java.util.LinkedList
 import java.util.UUID
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
@@ -123,6 +127,15 @@ class BleServer(
     private var lastAdvertisingFailureCode: Int? = null
     @Volatile private var isServerStarted = false
     private var heartRateServiceEnabled = false
+
+    // What the transports are actually doing, for the configuration screen to report. BLE is
+    // still governed by isServerStarted below - see the doc comment on isBleServerRunning for why
+    // the two are not merged into one flag - but DIRCON has no such ambiguity, so
+    // isDirConServerRunning reads straight off mutableDirConRunning.
+    private val mutableTransportState = MutableStateFlow(BleTransportState.Stopped)
+    val transportState: StateFlow<BleTransportState> = mutableTransportState.asStateFlow()
+    private val mutableDirConRunning = MutableStateFlow(false)
+    val dirConRunning: StateFlow<Boolean> = mutableDirConRunning.asStateFlow()
 
     // CCCD UUID for checking notification subscriptions
     private val CLIENT_CHARACTERISTIC_CONFIG = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -317,12 +330,14 @@ class BleServer(
         val bluetoothAdapter = bluetoothManager.adapter
         if (bluetoothAdapter == null) {
             Timber.e("Bluetooth adapter is null")
+            mutableTransportState.value = BleTransportState.AdapterUnavailable
             return
         }
 
         val localAdvertiser = bluetoothAdapter.bluetoothLeAdvertiser
         if (localAdvertiser == null) {
             Timber.e("Failed to create advertiser")
+            mutableTransportState.value = BleTransportState.AdvertiserUnavailable
             return
         }
         advertiser = localAdvertiser
@@ -334,6 +349,7 @@ class BleServer(
             ) == PackageManager.PERMISSION_GRANTED
             if (!hasConnectPermission) {
                 Timber.w("Cannot start BLE server: missing BLUETOOTH_CONNECT permission")
+                mutableTransportState.value = BleTransportState.PermissionDenied
                 return
             }
         } else {
@@ -343,6 +359,7 @@ class BleServer(
             ) == PackageManager.PERMISSION_GRANTED
             if (!hasBluetoothPermission) {
                 Timber.w("Cannot start BLE server: missing BLUETOOTH permission")
+                mutableTransportState.value = BleTransportState.PermissionDenied
                 return
             }
         }
@@ -352,16 +369,18 @@ class BleServer(
             val server = bluetoothManager.openGattServer(context, callbackForGeneration(generation))
             if (server == null) {
                 Timber.e("Failed to open GATT server (returned null)")
+                mutableTransportState.value = BleTransportState.Failed
                 return
             }
             gattServer = server
             isServerStarted = true
-            
+            mutableTransportState.value = BleTransportState.Starting
+
             // Register Bluetooth state change receiver
             val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
             context.registerReceiver(bluetoothStateReceiver, filter)
             Timber.d("Registered Bluetooth state change receiver")
-            
+
             // Register bond state receiver
             val bondFilter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
             context.registerReceiver(bondStateReceiver, bondFilter)
@@ -369,13 +388,15 @@ class BleServer(
             setupServices()
             startWatchdog()
             startHeartRateServiceWatcher()
-            
+
         } catch (e: SecurityException) {
             Timber.e(e, "Failed to open GATT server due to missing Bluetooth permission")
             stop() // Clean up partial initialization
+            mutableTransportState.value = BleTransportState.PermissionDenied
         } catch (e: Exception) {
             Timber.e(e, "Failed to start BLE server")
             stop() // Clean up partial initialization
+            mutableTransportState.value = BleTransportState.Failed
         }
     }
 
@@ -418,6 +439,7 @@ class BleServer(
     override fun stop() {
         isServerStarted = false
         isDirConOnlyStarted = false
+        mutableTransportState.value = BleTransportState.Stopped
         gattServerGeneration++
 
         // Detach first so no callback or concurrent operation can use a server once teardown starts.
@@ -499,12 +521,20 @@ class BleServer(
     /**
      * What the transports are actually doing right now, so that a sync can compare desired state
      * against running state instead of bouncing everything. See [OutboundTransports].
+     *
+     * Deliberately reads [isServerStarted], not [transportState]: the GATT registration can be
+     * open with advertising failed ([BleTransportState.Failed] while [isServerStarted] stays
+     * 
      */
     override val isBleServerRunning: Boolean
         get() = isServerStarted
 
+    /**
+     * [dirConServer] transitions exactly where [mutableDirConRunning] does, so the flow is the
+     * single source of truth here rather than a second null-check.
+     */
     override val isDirConServerRunning: Boolean
-        get() = dirConServer != null
+        get() = mutableDirConRunning.value
 
     override fun setDirConTransportEnabled(enabled: Boolean) {
         dirConTransportEnabled = enabled
@@ -597,11 +627,13 @@ class BleServer(
             bridge = dirConBridge,
             serialNumberProvider = { serialNumber() }
         ).also { it.start() }
+        mutableDirConRunning.value = true
     }
 
     private fun stopDirCon() {
         dirConServer?.stop()
         dirConServer = null
+        mutableDirConRunning.value = false
     }
 
     fun notifyCharacteristicChanged(
@@ -656,26 +688,51 @@ class BleServer(
         }
     }
     
+    /**
+     * [transportState] has to be written here as well as in [start] and [advertisingCallback]:
+     * the radio can be switched off underneath a running server, and a status line still
+     * reading "BLE transmission is active" with Bluetooth off is worse than no status line.
+     * Nothing here touches [isServerStarted] - the GATT registration survives the adapter
+     * bounce, and [isBleServerRunning] must keep reporting that, or `planTransportSync`
+     * restarts the transports and drops the DIRCON clients.
+     */
     private fun handleBluetoothStateChange(state: Int) {
         when (state) {
             BluetoothAdapter.STATE_OFF -> {
                 Timber.w("Bluetooth turned off, stopping advertising")
                 isAdvertising = false
                 // Don't call stopAdvertising() as Bluetooth is already off
+                reportAdapterUnavailable()
             }
             BluetoothAdapter.STATE_ON -> {
                 Timber.i("Bluetooth turned on, attempting to restart advertising")
                 if (isServerStarted) {
+                    // restartGattAndAdvertising() reports Starting and then the outcome.
+                    // Advertising is only ever claimed by advertisingCallback.onStartSuccess.
                     restartGattAndAdvertising("Bluetooth turned on")
                 }
             }
             BluetoothAdapter.STATE_TURNING_OFF -> {
                 Timber.d("Bluetooth turning off")
                 isAdvertising = false
+                // The radio is already on its way out; it is not carrying advertisements.
+                reportAdapterUnavailable()
             }
             BluetoothAdapter.STATE_TURNING_ON -> {
                 Timber.d("Bluetooth turning on")
+                // Nothing is restarted until STATE_ON, so this is not yet a recovery.
+                reportAdapterUnavailable()
             }
+        }
+    }
+
+    /**
+     * Only meaningful while the server is running: a stopped server reports [Stopped][
+     * BleTransportState.Stopped] whatever the radio is doing.
+     */
+    private fun reportAdapterUnavailable() {
+        if (isServerStarted) {
+            mutableTransportState.value = BleTransportState.AdapterUnavailable
         }
     }
     
@@ -713,12 +770,14 @@ class BleServer(
         
         if (bluetoothAdapter == null) {
             Timber.w("Watchdog: Bluetooth adapter is null")
+            reportAdapterUnavailable()
             return
         }
         
         if (!bluetoothAdapter.isEnabled) {
             Timber.d("Watchdog: Bluetooth is disabled; skipping auto-enable to avoid interfering with other apps")
             isAdvertising = false
+            reportAdapterUnavailable()
             return
         }
         
@@ -768,7 +827,9 @@ class BleServer(
         }
 
         Timber.i("Restarting GATT and advertising: $reason")
-        
+        // The restart is asynchronous from here; advertisingCallback settles it.
+        mutableTransportState.value = BleTransportState.Starting
+
         try {
             // Stop current advertising
             stopAdvertising()
@@ -786,12 +847,14 @@ class BleServer(
             val bluetoothAdapter = bluetoothManager.adapter
             if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled) {
                 Timber.e("Cannot restart: Bluetooth not available")
+                mutableTransportState.value = BleTransportState.AdapterUnavailable
                 return
             }
             
             advertiser = bluetoothAdapter.bluetoothLeAdvertiser
             if (advertiser == null) {
                 Timber.e("Cannot restart: Failed to get advertiser")
+                mutableTransportState.value = BleTransportState.AdvertiserUnavailable
                 return
             }
             
@@ -802,6 +865,7 @@ class BleServer(
             )
             if (replacement == null) {
                 Timber.e("Cannot restart: Failed to open GATT server")
+                mutableTransportState.value = BleTransportState.Failed
                 return
             }
             gattServer = replacement
@@ -815,8 +879,10 @@ class BleServer(
             
         } catch (e: SecurityException) {
             Timber.e(e, "Missing bluetooth permissions during restart")
+            mutableTransportState.value = BleTransportState.PermissionDenied
         } catch (e: Exception) {
             Timber.e(e, "Error during GATT and advertising restart")
+            mutableTransportState.value = BleTransportState.Failed
         }
     }
 
@@ -881,6 +947,7 @@ class BleServer(
             object : AdvertiseCallback() {
                 override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
                     isAdvertising = true
+                    mutableTransportState.value = BleTransportState.Advertising
                     lastAdvertisingStartTime = System.currentTimeMillis()
                     lastAdvertisingFailureCode = null
                     Timber.i("BLE advertising started successfully")
@@ -888,6 +955,7 @@ class BleServer(
 
                 override fun onStartFailure(errorCode: Int) {
                     isAdvertising = false
+                    mutableTransportState.value = BleTransportState.Failed
                     lastAdvertisingFailureCode = errorCode
                     val errorMessage = when (errorCode) {
                         AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE -> "Data too large"
@@ -900,6 +968,7 @@ class BleServer(
                     Timber.e("BLE advertising failed: $errorCode ($errorMessage)")
                     if (errorCode == AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED) {
                         isAdvertising = true
+                        mutableTransportState.value = BleTransportState.Advertising
                     }
                 }
             }
